@@ -3,7 +3,7 @@
 # Prefer the setup window (double-click Start) instead of editing this file.
 
 provider: gemini          # gemini | openai | anthropic | openrouter | openai_compatible | ollama | mock
-model: gemini-2.5-pro
+model: gemini-3.1-pro-preview
 api_key: ""               # paste your Gemini/OpenAI/Anthropic key here
 base_url: ""              # leave empty for Gemini; optional override for other providers
 

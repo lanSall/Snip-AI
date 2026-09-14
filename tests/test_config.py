@@ -17,7 +17,7 @@ from snipai.config import (
 def test_defaults():
     config = from_dict({})
     assert config.provider == "gemini"
-    assert config.model == "gemini-2.5-pro"
+    assert config.model == "gemini-3.1-pro-preview"
     assert config.hotkey == "ctrl+shift+space"
     assert config.notify.position == "bottom-right"
     assert config.notify.sound is False
@@ -54,7 +54,7 @@ def test_gemini_key_switches_openai_defaults(monkeypatch):
         from_dict({"provider": "openai", "api_key": "AIzaSyTestKey", "model": "gpt-4o"})
     )
     assert config.provider == "gemini"
-    assert config.model == "gemini-2.5-pro"
+    assert config.model == "gemini-3.1-pro-preview"
 
 
 def test_looks_like_gemini_key():
@@ -68,7 +68,7 @@ def test_load_missing_file_uses_defaults(tmp_path: Path, monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     config = load_config()
-    assert config.model == "gemini-2.5-pro"
+    assert config.model == "gemini-3.1-pro-preview"
 
 
 def test_cwd_config_is_discovered(tmp_path: Path, monkeypatch):
@@ -145,3 +145,20 @@ def test_example_files_do_not_contain_live_keys():
     blob = (repo / "config.example.yaml").read_text(encoding="utf-8")
     blob += "\n" + (repo / "snipai" / "config.py").read_text(encoding="utf-8")
     assert not re.search(r"AIzaSy[A-Za-z0-9_-]{20,}", blob)
+
+
+def test_prepare_config_upgrades_retired_gemini_default():
+    config = prepare_config(from_dict({"provider": "gemini", "model": "gemini-2.5-pro", "api_key": "AIza-test"}))
+    assert config.model == "gemini-3.1-pro-preview"
+
+
+def test_load_config_rewrites_retired_gemini_model(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("SNIPAI_MODEL", raising=False)
+    path = tmp_path / "config.yaml"
+    path.write_text("provider: gemini\nmodel: gemini-2.5-pro\napi_key: AIza-test\n", encoding="utf-8")
+    config = load_config(path)
+    assert config.model == "gemini-3.1-pro-preview"
+    assert "gemini-3.1-pro-preview" in path.read_text(encoding="utf-8")
+    assert "gemini-2.5-pro" not in path.read_text(encoding="utf-8")
