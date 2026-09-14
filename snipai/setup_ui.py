@@ -53,6 +53,8 @@ def run_setup_wizard(config: Config) -> Config | None:
     outer.pack(fill="both", expand=True)
     frame = tk.Frame(outer, bg=BG, padx=28, pady=24)
     frame.pack(fill="both", expand=True)
+    frame.configure(width=460)
+    frame.pack_propagate(True)
 
     tk.Label(frame, text="snip-ai", bg=BG, fg=ACCENT, font=_FONT_BOLD, anchor="w").pack(fill="x")
     tk.Label(
@@ -94,13 +96,13 @@ def run_setup_wizard(config: Config) -> Config | None:
         fg=FG,
         insertbackground=FG,
         relief="flat",
-        show="•",
+        show="*",
     )
     entry.pack(side="left", fill="x", expand=True, ipady=6, padx=(0, 8))
 
     def toggle_key() -> None:
         show_key.set(not show_key.get())
-        entry.configure(show="" if show_key.get() else "•")
+        entry.configure(show="" if show_key.get() else "*")
         peek.configure(text="Hide" if show_key.get() else "Show")
 
     peek = tk.Button(
@@ -109,6 +111,10 @@ def run_setup_wizard(config: Config) -> Config | None:
         command=toggle_key,
         bg=BTN_BG,
         fg=FG,
+        activebackground="#3a404a",
+        activeforeground=FG,
+        highlightthickness=0,
+        bd=0,
         relief="flat",
         font=_FONT_SMALL,
         padx=8,
@@ -126,6 +132,10 @@ def run_setup_wizard(config: Config) -> Config | None:
         command=open_key_page,
         bg=BG,
         fg=ACCENT,
+        activebackground=BG,
+        activeforeground=ACCENT,
+        highlightthickness=0,
+        bd=0,
         relief="flat",
         font=_FONT_SMALL,
         cursor="hand2",
@@ -173,6 +183,10 @@ def run_setup_wizard(config: Config) -> Config | None:
         command=cancel,
         bg=BTN_BG,
         fg=FG,
+        activebackground="#3a404a",
+        activeforeground=FG,
+        highlightthickness=0,
+        bd=0,
         relief="flat",
         font=_FONT,
         padx=14,
@@ -185,6 +199,10 @@ def run_setup_wizard(config: Config) -> Config | None:
         command=save_and_close,
         bg=ACCENT,
         fg="#052e1a",
+        activebackground="#34d399",
+        activeforeground="#052e1a",
+        highlightthickness=0,
+        bd=0,
         relief="flat",
         font=_FONT,
         padx=14,
@@ -194,7 +212,7 @@ def run_setup_wizard(config: Config) -> Config | None:
 
     tk.Label(
         frame,
-        text="Ctrl+Shift+Space  whole screen    ·    Ctrl+Shift+.  draw a box",
+        text="Then press Ctrl+Shift+Space for the whole screen,\nor Ctrl+Shift+Period to draw a box.",
         bg=BG,
         fg=MUTED,
         font=_FONT_SMALL,
@@ -204,10 +222,11 @@ def run_setup_wizard(config: Config) -> Config | None:
     root.protocol("WM_DELETE_WINDOW", cancel)
     entry.focus_set()
     root.update_idletasks()
-    width, height = root.winfo_reqwidth(), root.winfo_reqheight()
+    width = max(root.winfo_reqwidth(), 480)
+    height = root.winfo_reqheight()
     x = max(0, (root.winfo_screenwidth() - width) // 2)
     y = max(0, (root.winfo_screenheight() - height) // 3)
-    root.geometry(f"+{x}+{y}")
+    root.geometry(f"{width}x{height}+{x}+{y}")
     try:
         root.lift()
         root.focus_force()
