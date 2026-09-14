@@ -10,9 +10,17 @@ from pathlib import Path
 from snipai import SnipError, __version__
 from snipai.app import SnipApp
 from snipai.capture import image_from_png, prepare_png, snapshot_current
-from snipai.config import default_config_path, load_config, resolve_config_path, user_data_dir, write_example_config
+from snipai.config import (
+    apply_setup,
+    default_config_path,
+    load_config,
+    resolve_config_path,
+    save_config,
+    user_data_dir,
+    write_example_config,
+)
+from snipai.onboard import in_automated_run, load_ready_config, offer_setup, should_show_setup_gui
 from snipai.solver import make_solver
-from snipai.ui import ToastUI, configure_dpi, select_region
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -43,12 +51,19 @@ def main(argv: list[str] | None = None) -> int:
     solve.add_argument("image", type=Path)
     solve.add_argument("--no-notify", action="store_true", help="Print the answer only; skip the toast.")
 
-    init = sub.add_parser("init", help="Write a starter config file.")
+    init = sub.add_parser("init", help="Paste your API key (setup window, or --key).")
     init.add_argument(
         "--force",
         action="store_true",
         help="Overwrite an existing config with the example file.",
     )
+    init.add_argument("--key", default="", help="Save this API key and skip the setup window.")
+    init.add_argument(
+        "--provider",
+        default="",
+        help="gemini (default), openai, anthropic, openrouter, or ollama.",
+    )
+    init.add_argument("--cli", action="store_true", help="Prompt in the terminal instead of a window.")
 
     test = sub.add_parser("test-notify", help="Show a sample toast (no screenshot / API).")
     test.add_argument("message", nargs="?", default="ANSWER: 42\nWHY: Sample notification from snip-ai.")
@@ -56,7 +71,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     command = args.command or "run"
     _setup_logging()
-    configure_dpi()
+    try:
+        from snipai.ui import configure_dpi
+
+        configure_dpi()
+    except ModuleNotFoundError:
+        pass
 
     try:
         if command == "init":
@@ -71,18 +91,54 @@ def main(argv: list[str] | None = None) -> int:
 
 def _cmd_init(args: argparse.Namespace) -> int:
     path = args.config or default_config_path()
-    if path.exists() and args.force:
-        path.unlink()
+    existing = load_config(path)
+
+    if args.key.strip():
+        saved = save_config(apply_setup(existing, api_key=args.key, provider=args.provider or None), path)
+        print(f"Saved {saved}")
+        print("You can start with: snip-ai")
+        return 0
+
+    if args.force:
+        if path.exists():
+            path.unlink()
+        written = write_example_config(path)
+        print(f"Wrote {written}")
+        print("Paste your API key in that file, or run snip-ai and use the setup window.")
+        return 0
+
+    if args.cli or (not in_automated_run() and (should_show_setup_gui() or sys.stdin.isatty())):
+        updated = offer_setup(existing, path, force_cli=args.cli, always=True)
+        if updated is None:
+            print("Setup cancelled.")
+            return 1
+        print(f"Saved {path}")
+        print("You can start with: snip-ai")
+        return 0
+
     written = write_example_config(path)
     print(f"Wrote {written}")
-    print("Add your API key, then run: snip-ai run")
+    print("Double-click Start (or run snip-ai) and paste your API key in the window.")
     return 0
+
+
+def _require_tk() -> None:
+    try:
+        import tkinter  # noqa: F401
+    except ModuleNotFoundError:
+        hint = "On Ubuntu/Debian: sudo apt install python3-tk"
+        if sys.platform == "win32":
+            hint = "Reinstall Python from python.org and leave the tcl/tk option enabled."
+        elif sys.platform == "darwin":
+            hint = "Install Python from python.org, or: brew install python-tk"
+        raise SnipError(f"Python is missing Tk (the window toolkit). {hint}") from None
 
 
 def _cmd_test_notify(args: argparse.Namespace) -> int:
     from snipai.config import NotifyConfig
     from snipai.formatting import toast_body
-
+    _require_tk()
+    from snipai.ui import ToastUI
     ui = ToastUI(NotifyConfig(duration_ms=4000))
     ui.show_toast("Answer", toast_body(args.message))
     ui.root.after(4500, ui.root.quit)
@@ -106,11 +162,20 @@ class _HeadlessUI:
 
 def _cmd_with_config(command: str, args: argparse.Namespace) -> int:
     config_path = resolve_config_path(args.config)
-    config = load_config(args.config)
+    config = load_ready_config(args.config, config_path)
+    if config is None:
+        print(
+            "snip-ai: setup cancelled. Run snip-ai again and paste an API key,\n"
+            "  or: snip-ai init --key YOUR_KEY",
+            file=sys.stderr,
+        )
+        return 1
     solver = make_solver(config)
     notify = not getattr(args, "no_notify", False)
 
     if command == "run":
+        _require_tk()
+        from snipai.ui import ToastUI
         ui = ToastUI(config.notify)
         app = SnipApp(config, solver, ui)
         print(
@@ -126,8 +191,8 @@ def _cmd_with_config(command: str, args: argparse.Namespace) -> int:
         print(f"model   {config.provider} / {config.model}", flush=True)
         if config.provider.lower() != "mock" and not config.resolved_api_key():
             print(
-                "snip-ai: no API key. Edit the config file above and set api_key, "
-                "or set GEMINI_API_KEY / OPENAI_API_KEY / SNIPAI_API_KEY.",
+                "snip-ai: no API key. Run snip-ai again to open setup, "
+                "or: snip-ai init --key YOUR_KEY",
                 file=sys.stderr,
             )
         try:
@@ -139,6 +204,8 @@ def _cmd_with_config(command: str, args: argparse.Namespace) -> int:
         return 0
 
     if command == "once":
+        _require_tk()
+        from snipai.ui import ToastUI, select_region
         ui = ToastUI(config.notify)
         app = SnipApp(config, solver, ui)
         mode = "region" if args.region or config.capture_mode == "region" else "screen"
@@ -167,7 +234,13 @@ def _cmd_with_config(command: str, args: argparse.Namespace) -> int:
         if not image_path.exists():
             raise SnipError(f"Image not found: {image_path}")
         png = prepare_png(image_from_png(image_path.read_bytes()), max_width=config.max_image_width)
-        ui = ToastUI(config.notify) if notify else _HeadlessUI()
+        if notify:
+            _require_tk()
+            from snipai.ui import ToastUI
+
+            ui = ToastUI(config.notify)
+        else:
+            ui = _HeadlessUI()
         app = SnipApp(config, solver, ui)
         try:
             answer = app.solve_png(png, notify=notify)

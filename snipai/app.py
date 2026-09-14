@@ -7,6 +7,8 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
+from typing import Any, Protocol
+
 from snipai import SnipError
 from snipai.capture import prepare_png, snapshot_current
 from snipai.clipboard import copy_text
@@ -14,13 +16,22 @@ from snipai.config import Config
 from snipai.formatting import parse_solution, toast_body
 from snipai.hotkeys import start_hotkeys
 from snipai.solver import Solver
-from snipai.ui import ToastUI, select_region
 
 log = logging.getLogger("snipai")
 
 
+class UserInterface(Protocol):
+    def schedule(self, fn: Any) -> None: ...
+
+    def show_toast(self, title: str, body: str, *, duration_ms: int | None = None) -> None: ...
+
+    def mainloop(self) -> None: ...
+
+    def destroy(self) -> None: ...
+
+
 class SnipApp:
-    def __init__(self, config: Config, solver: Solver, ui: ToastUI) -> None:
+    def __init__(self, config: Config, solver: Solver, ui: UserInterface) -> None:
         self.config = config
         self.solver = solver
         self.ui = ui
@@ -103,6 +114,8 @@ class SnipApp:
             done = threading.Event()
 
             def pick() -> None:
+                from snipai.ui import select_region
+
                 try:
                     selected["image"] = select_region(self.ui, image, monitor.left, monitor.top)
                 finally:

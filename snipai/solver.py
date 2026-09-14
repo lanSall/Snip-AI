@@ -49,8 +49,8 @@ class OpenAICompatibleSolver:
         key = self.config.resolved_api_key()
         if not key:
             raise SnipError(
-                "No API key. Put api_key in config.yaml (run: snip-ai init), "
-                "or export GEMINI_API_KEY / OPENAI_API_KEY / SNIPAI_API_KEY."
+                "No API key. Run snip-ai and paste a key in the setup window, "
+                "or: snip-ai init --key YOUR_KEY"
             )
         url = f"{self.config.resolved_base_url()}/chat/completions"
         headers = {
@@ -96,7 +96,8 @@ class AnthropicSolver:
         key = self.config.resolved_api_key()
         if not key:
             raise SnipError(
-                "No API key. Set api_key in config.yaml or export ANTHROPIC_API_KEY / SNIPAI_API_KEY."
+                "No API key. Run snip-ai and paste a key in the setup window, "
+                "or: snip-ai init --key YOUR_KEY"
             )
         url = f"{self.config.resolved_base_url()}/v1/messages"
         headers = {

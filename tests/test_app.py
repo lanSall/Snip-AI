@@ -53,6 +53,42 @@ def test_cli_init(tmp_path: Path, capsys):
     assert "provider:" in path.read_text(encoding="utf-8")
 
 
+def test_cli_init_with_key(tmp_path: Path, capsys):
+    path = tmp_path / "config.yaml"
+    code = main(["--config", str(path), "init", "--key", "AIzaSyTESTKEY"])
+    assert code == 0
+    text = path.read_text(encoding="utf-8")
+    assert "AIzaSyTESTKEY" in text
+    captured = capsys.readouterr()
+    assert "Saved" in captured.out
+
+
+def test_cli_init_openai_key_infers_provider(tmp_path: Path):
+    path = tmp_path / "config.yaml"
+    assert main(["--config", str(path), "init", "--key", "sk-proj-abc"]) == 0
+    text = path.read_text(encoding="utf-8")
+    assert "provider: openai" in text
+    assert "sk-proj-abc" in text
+
+
+def test_cli_solve_without_key_asks_for_setup(tmp_path: Path, math_problem_png: Path, monkeypatch, capsys):
+    for name in (
+        "OPENAI_API_KEY",
+        "SNIPAI_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "OPENROUTER_API_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    config = tmp_path / "empty.yaml"
+    config.write_text("provider: gemini\napi_key: ''\n", encoding="utf-8")
+    code = main(["--config", str(config), "solve", str(math_problem_png), "--no-notify"])
+    captured = capsys.readouterr()
+    assert code == 1
+    assert "setup" in captured.err.lower() or "API key" in captured.err
+
+
 def test_sniperror_toast_survives_except_block(monkeypatch):
     queued = []
 

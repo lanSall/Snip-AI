@@ -1,54 +1,80 @@
 # snip-ai
 
-Hotkey the screen you are looking at, send that picture to a vision model, and get a **small corner toast** with the answer. The full answer is also copied to the clipboard so you can paste it without hunting through windows.
+Press a hotkey, send what’s on your screen to AI, and get a **small corner toast** with the answer. The full answer is also copied so you can paste it.
 
 ```
 Ctrl+Shift+Space   capture the monitor under the cursor
 Ctrl+Shift+.       drag a rectangle (snip), then solve that region
 ```
 
-The toast does not steal keyboard focus. It sits in a corner, stays quiet (no sound), and dismisses itself.
+The toast does not steal keyboard focus. It stays quiet (no sound) and dismisses itself.
 
-## What you need
+## Get started (about two minutes)
 
-- Python 3.10+
-- An API key for a vision-capable model:
-  - [Gemini](https://aistudio.google.com/api-keys) (`gemini-2.5-pro` or Flash)
-  - [OpenAI](https://platform.openai.com/) (`gpt-4o` or `gpt-4o-mini`)
-  - [Anthropic](https://www.anthropic.com/) (`claude-sonnet-4-5` or similar)
-  - [OpenRouter](https://openrouter.ai/)
-  - a local [Ollama](https://ollama.com/) vision model such as `llama3.2-vision`
+You only need to do this once.
 
-On Windows, install Python from python.org and leave the **tcl/tk** option enabled (it is on by default). That toolkit draws the snip overlay and the toast.
+1. **Install Python 3.10 or newer** from [python.org/downloads](https://www.python.org/downloads/).
+   - Windows: in the installer, check **Add python.exe to PATH**. Leave the **tcl/tk** option on.
+2. **Start snip-ai**
+   - Windows: double-click `Start.bat`
+   - Mac: double-click `Start.command` (if macOS warns it, right-click → Open)
+   - Linux: run `./Start.sh` (Ubuntu/Debian also need `sudo apt install python3-venv python3-dev python3-tk`)
+3. A **setup window** asks for an API key. Click **Get a free Gemini key**, create one, paste it, then **Save and start**.
+4. Leave snip-ai running. Put a question or error on screen and press **Ctrl+Shift+Space**.
 
-## Install
+That’s it. The first launch installs snip-ai for you; later launches just start it.
 
-```bash
-cd snip-ai
-python -m venv .venv
+A Gemini app / Gemini Pro subscription is not an API key. Create one at [Google AI Studio](https://aistudio.google.com/api-keys). OpenAI, Anthropic, OpenRouter, and a local [Ollama](https://ollama.com/) vision model also work — pick them in the same setup window.
 
-# Windows
-.venv\Scripts\activate
-pip install -e .
+### If Python is already installed
 
-# macOS / Linux
-source .venv/bin/activate
-pip install -e .
-```
-
-Linux also needs a compiler and Tk:
+From a terminal, in this folder:
 
 ```bash
-sudo apt install python3-dev python3-tk
+python -m pip install -e .
+snip-ai
 ```
 
-## Configure
+The same setup window appears if no key is saved yet. You can also save a key without the window:
 
 ```bash
-snip-ai init
+snip-ai init --key YOUR_KEY
 ```
 
-That writes a config file (it will not overwrite an existing one):
+## After it is running
+
+1. Put a problem, error, or question on screen.
+2. Press **Ctrl+Shift+Space** (whole current monitor) or **Ctrl+Shift+.** (drag a snip).
+3. A tiny **Solving…** toast appears, then the answer.
+4. Paste if you want the full write-up — it is already on the clipboard.
+
+Windows: to hide the console window, copy `scripts/start-windows.vbs` to the Startup folder (`Win+R` → `shell:startup`) after you have launched `Start.bat` once.
+
+Other commands:
+
+```bash
+snip-ai                    # same as snip-ai run
+snip-ai init               # open setup again (change your key)
+snip-ai test-notify "ANSWER: 42"
+snip-ai once               # capture + solve once, then exit
+snip-ai once --region
+snip-ai solve path/to/shot.png
+snip-ai solve path/to/shot.png --no-notify
+```
+
+`mock` as the provider skips the network and is useful while you try the hotkey and toast.
+
+## macOS permissions
+
+Grant **Accessibility** (global hotkeys) and **Screen Recording** (capture) to Terminal, or to Python, depending on how you launched it.
+
+## Wayland
+
+Global hotkeys and screenshots are more reliable on Windows, macOS, and X11. On Wayland, run `snip-ai once` or `snip-ai solve FILE` if the background listener cannot bind keys.
+
+## Settings file (optional)
+
+Most people never need this. The setup window writes a small file:
 
 | Platform | Path |
 | --- | --- |
@@ -56,86 +82,7 @@ That writes a config file (it will not overwrite an existing one):
 | macOS | `~/Library/Application Support/snip-ai/config.yaml` |
 | Linux | `~/.config/snip-ai/config.yaml` |
 
-Put your key in that file (`api_key: "..."`), **not** in `config.example.yaml`. `snip-ai run` prints the path it is using.
-
-A Gemini app / Gemini Pro subscription is not an API key. Create one at [Google AI Studio](https://aistudio.google.com/api-keys).
-
-```yaml
-provider: gemini
-model: gemini-2.5-pro
-api_key: "AIza..."          # paste the AI Studio key here
-```
-
-Or set an environment variable instead:
-
-```bash
-# Gemini
-setx GEMINI_API_KEY "AIza..."         # Windows (new terminals only)
-export GEMINI_API_KEY="AIza..."       # macOS / Linux
-
-# OpenAI
-setx OPENAI_API_KEY "sk-..."
-export OPENAI_API_KEY="sk-..."
-
-# Anthropic
-export ANTHROPIC_API_KEY="sk-ant-..."
-```
-
-Example `config.yaml`:
-
-```yaml
-provider: gemini          # gemini | openai | anthropic | openrouter | openai_compatible | ollama | mock
-model: gemini-2.5-pro
-api_key: ""
-hotkey: ctrl+shift+space
-region_hotkey: ctrl+shift+period
-clipboard: true
-notify:
-  enabled: true
-  duration_ms: 8000
-  max_chars: 180
-  position: bottom-right  # bottom-right | bottom-left | top-right | top-left
-  sound: false
-```
-
-## Use it
-
-```bash
-snip-ai run
-```
-
-Leave that process running. On Windows, start it with `pythonw -m snipai run` so no console window appears. `scripts/start-windows.vbs` does that; copy it to the Startup folder (`Win+R` → `shell:startup`) after `pip install -e .`.
-
-Then:
-
-1. Put a problem, error, or question on screen.
-2. Press **Ctrl+Shift+Space** (whole current monitor) or **Ctrl+Shift+.** (drag a snip).
-3. A tiny **Solving…** toast appears, then the answer.
-4. Paste if you want the full write-up — it is already on the clipboard.
-
-Other commands:
-
-```bash
-snip-ai test-notify "ANSWER: 42"
-snip-ai once                  # capture + solve once, then exit
-snip-ai once --region
-snip-ai solve path/to/shot.png
-snip-ai solve path/to/shot.png --no-notify
-```
-
-`mock` as the provider skips the network and is useful while you try the hotkey and toast:
-
-```yaml
-provider: mock
-```
-
-## macOS permissions
-
-Grant **Accessibility** (global hotkeys) and **Screen Recording** (capture) to Terminal, iTerm, or `python`, depending on how you launch it.
-
-## Wayland
-
-Global hotkeys and screenshots are more reliable on Windows, macOS, and X11. On Wayland, run `snip-ai once` or `snip-ai solve FILE` if the background listener cannot bind keys.
+You can also set `GEMINI_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY` in the environment instead of pasting a key.
 
 ## Privacy
 
