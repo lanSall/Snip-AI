@@ -1,0 +1,24 @@
+# snip-ai config
+# Get a Gemini key at https://aistudio.google.com/api-keys and paste it below.
+
+provider: gemini          # gemini | openai | anthropic | openrouter | openai_compatible | ollama | mock
+model: gemini-2.5-pro
+api_key: "AIzaSyB8maFJUQSDHCdOZAYzMvmcTEhi3qeZwUM"
+base_url: ""              # leave empty for Gemini; optional override for other providers
+
+# Global hotkeys. Use ctrl, alt, shift, cmd (Windows key / Command).
+hotkey: ctrl+shift+space          # capture the monitor under the cursor
+region_hotkey: ctrl+shift+period  # drag a rectangle, then solve that snip
+capture_mode: screen              # screen | region  (used by `snip-ai once`)
+
+clipboard: true           # copy the full answer so you can paste it
+save_shots: false
+shots_dir: ""
+max_image_width: 1600
+
+notify:
+  enabled: true
+  duration_ms: 8000
+  max_chars: 180
+  position: bottom-right  # bottom-right | bottom-left | top-right | top-left
+  sound: false

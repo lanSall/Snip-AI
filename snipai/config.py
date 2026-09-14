@@ -1,0 +1,261 @@
+"""Load and save snip-ai settings."""
+
+from __future__ import annotations
+
+import os
+import sys
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from snipai import SnipError
+
+
+DEFAULT_SYSTEM_PROMPT = """You are a screenshot problem-solver.
+
+Look at the image. Identify the question, error, puzzle, or task on screen.
+Solve it. Be correct and concise.
+
+Format your reply EXACTLY like this:
+ANSWER: <the final answer, as short as possible>
+WHY: <one or two sentences>
+
+If the screenshot is an error message, ANSWER is the fix.
+If it is multiple choice, ANSWER is the letter and the choice text.
+If there is no problem to solve, ANSWER is a one-line description of what you see.
+Do not use markdown."""
+
+
+def user_config_dir() -> Path:
+    if os.name == "nt":
+        base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+        return base / "snip-ai"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "snip-ai"
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    if xdg:
+        return Path(xdg) / "snip-ai"
+    return Path.home() / ".config" / "snip-ai"
+
+
+def user_data_dir() -> Path:
+    if os.name == "nt":
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        return base / "snip-ai"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Logs" / "snip-ai"
+    xdg = os.environ.get("XDG_DATA_HOME")
+    if xdg:
+        return Path(xdg) / "snip-ai"
+    return Path.home() / ".local" / "share" / "snip-ai"
+
+
+def package_config_path() -> Path:
+    """``config.yaml`` next to the snip-ai project folder (where this package lives)."""
+    return Path(__file__).resolve().parent.parent / "config.yaml"
+
+
+def resolve_config_path(explicit: Path | None = None) -> Path:
+    """Pick the config file: ``--config``, ``$SNIPAI_CONFIG``, cwd, project folder, then the user config dir."""
+    if explicit is not None:
+        return explicit.expanduser()
+    override = os.environ.get("SNIPAI_CONFIG")
+    if override:
+        return Path(override).expanduser()
+    cwd_config = Path.cwd() / "config.yaml"
+    if cwd_config.is_file():
+        return cwd_config
+    packaged = package_config_path()
+    if packaged.is_file():
+        return packaged
+    return user_config_dir() / "config.yaml"
+
+
+def default_config_path() -> Path:
+    return resolve_config_path()
+
+
+@dataclass
+class NotifyConfig:
+    enabled: bool = True
+    duration_ms: int = 8000
+    max_chars: int = 180
+    position: str = "bottom-right"
+    sound: bool = False
+
+
+@dataclass
+class Config:
+    provider: str = "openai"
+    model: str = "gpt-4o"
+    api_key: str = ""
+    base_url: str = ""
+    hotkey: str = "ctrl+shift+space"
+    region_hotkey: str = "ctrl+shift+period"
+    capture_mode: str = "screen"
+    clipboard: bool = True
+    save_shots: bool = False
+    shots_dir: str = ""
+    max_image_width: int = 1600
+    system_prompt: str = DEFAULT_SYSTEM_PROMPT
+    mock_reply: str = ""
+    notify: NotifyConfig = field(default_factory=NotifyConfig)
+
+    def resolved_api_key(self) -> str:
+        if self.api_key.strip():
+            return self.api_key.strip()
+        provider = self.provider.lower().strip()
+        names = ["SNIPAI_API_KEY"]
+        if provider in {"gemini", "google"}:
+            names += ["GEMINI_API_KEY", "GOOGLE_API_KEY"]
+        elif provider == "anthropic":
+            names += ["ANTHROPIC_API_KEY"]
+        elif provider == "openrouter":
+            names += ["OPENROUTER_API_KEY", "OPENAI_API_KEY"]
+        else:
+            names += [
+                "OPENAI_API_KEY",
+                "OPENROUTER_API_KEY",
+                "GEMINI_API_KEY",
+                "GOOGLE_API_KEY",
+            ]
+        for name in names:
+            value = os.environ.get(name, "").strip()
+            if value:
+                return value
+        return ""
+
+    def resolved_shots_dir(self) -> Path:
+        if self.shots_dir.strip():
+            return Path(self.shots_dir).expanduser()
+        return user_data_dir() / "shots"
+
+    def resolved_base_url(self) -> str:
+        if self.base_url.strip():
+            return self.base_url.rstrip("/")
+        provider = self.provider.lower().strip()
+        if provider == "openai":
+            return "https://api.openai.com/v1"
+        if provider in {"gemini", "google"}:
+            return "https://generativelanguage.googleapis.com/v1beta/openai"
+        if provider == "openrouter":
+            return "https://openrouter.ai/api/v1"
+        if provider == "anthropic":
+            return "https://api.anthropic.com"
+        if provider == "ollama":
+            return "http://127.0.0.1:11434"
+        return os.environ.get("SNIPAI_BASE_URL", "").rstrip("/")
+
+
+def _notify_from_dict(raw: Any) -> NotifyConfig:
+    data = raw if isinstance(raw, dict) else {}
+    defaults = NotifyConfig()
+    return NotifyConfig(
+        enabled=bool(data.get("enabled", defaults.enabled)),
+        duration_ms=int(data.get("duration_ms", defaults.duration_ms)),
+        max_chars=int(data.get("max_chars", defaults.max_chars)),
+        position=str(data.get("position", defaults.position)),
+        sound=bool(data.get("sound", defaults.sound)),
+    )
+
+
+def from_dict(raw: dict[str, Any] | None) -> Config:
+    data = raw or {}
+    defaults = Config()
+    provider = str(os.environ.get("SNIPAI_PROVIDER") or data.get("provider", defaults.provider))
+    model = str(os.environ.get("SNIPAI_MODEL") or data.get("model", defaults.model))
+    hotkey = str(os.environ.get("SNIPAI_HOTKEY") or data.get("hotkey", defaults.hotkey))
+    return Config(
+        provider=provider,
+        model=model,
+        api_key=str(data.get("api_key", defaults.api_key)),
+        base_url=str(data.get("base_url", defaults.base_url)),
+        hotkey=hotkey,
+        region_hotkey=str(data.get("region_hotkey", defaults.region_hotkey)),
+        capture_mode=str(data.get("capture_mode", defaults.capture_mode)),
+        clipboard=bool(data.get("clipboard", defaults.clipboard)),
+        save_shots=bool(data.get("save_shots", defaults.save_shots)),
+        shots_dir=str(data.get("shots_dir", defaults.shots_dir)),
+        max_image_width=int(data.get("max_image_width", defaults.max_image_width)),
+        system_prompt=str(data.get("system_prompt", defaults.system_prompt)),
+        mock_reply=str(data.get("mock_reply", defaults.mock_reply)),
+        notify=_notify_from_dict(data.get("notify")),
+    )
+
+
+def looks_like_gemini_key(key: str) -> bool:
+    stripped = (key or "").strip()
+    return stripped.startswith("AIza") or stripped.startswith("AQ.")
+
+
+def prepare_config(config: Config) -> Config:
+    """Fill Gemini provider/model when the key or provider says Gemini."""
+    provider = config.provider.lower().strip()
+    key = config.resolved_api_key()
+    if provider in {"gemini", "google"} or (
+        provider in {"openai", "openai_compatible"} and looks_like_gemini_key(key)
+    ):
+        config.provider = "gemini"
+        if not config.model.strip() or config.model.startswith("gpt-"):
+            config.model = "gemini-2.5-pro"
+    return config
+
+
+def load_config(path: Path | None = None) -> Config:
+    config_path = resolve_config_path(path)
+    if not config_path.exists():
+        return prepare_config(from_dict({}))
+    loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    if loaded is None:
+        return prepare_config(from_dict({}))
+    if not isinstance(loaded, dict):
+        raise SnipError(f"Config file must be a YAML mapping: {config_path}")
+    return prepare_config(from_dict(loaded))
+
+
+def config_to_dict(config: Config) -> dict[str, Any]:
+    data = asdict(config)
+    return data
+
+
+EXAMPLE_YAML = """# snip-ai config
+# This is the live config (not config.example.yaml in the repo).
+# Get a Gemini key at https://aistudio.google.com/api-keys
+
+provider: gemini          # gemini | openai | anthropic | openrouter | openai_compatible | ollama | mock
+model: gemini-2.5-pro
+api_key: ""               # paste your Gemini/OpenAI/Anthropic key here
+base_url: ""              # optional override, e.g. http://127.0.0.1:11434/v1
+
+# Global hotkeys. Use ctrl, alt, shift, cmd (Windows key / Command).
+hotkey: ctrl+shift+space          # capture the monitor under the cursor
+region_hotkey: ctrl+shift+period  # drag a rectangle, then solve that snip
+capture_mode: screen              # screen | region  (used by `snip-ai once`)
+
+clipboard: true           # copy the full answer so you can paste it
+save_shots: false
+shots_dir: ""
+max_image_width: 1600
+
+notify:
+  enabled: true
+  duration_ms: 8000
+  max_chars: 180
+  position: bottom-right  # bottom-right | bottom-left | top-right | top-left
+  sound: false
+"""
+
+
+def write_example_config(path: Path | None = None) -> Path:
+    config_path = path or default_config_path()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    if config_path.exists():
+        return config_path
+    config_path.write_text(EXAMPLE_YAML, encoding="utf-8")
+    try:
+        os.chmod(config_path, 0o600)
+    except OSError:
+        pass
+    return config_path

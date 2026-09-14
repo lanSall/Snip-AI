@@ -1,0 +1,33 @@
+[project]
+name = "snip-ai"
+version = "0.1.0"
+description = "Capture the current screen with a hotkey, solve it with a vision model, and get a discreet notification with the answer."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "snip-ai" }]
+dependencies = [
+    "mss>=9.0.0",
+    "pillow>=10.0.0",
+    "pynput>=1.7.6",
+    "httpx>=0.27.0",
+    "pyyaml>=6.0",
+    "pyperclip>=1.8.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+snip-ai = "snipai.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["snipai*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
