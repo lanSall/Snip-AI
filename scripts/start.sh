@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
-exec python3 -m snipai run "$@"
+cd "$(dirname "$0")/.."
+exec python3 scripts/ensure_and_run.py "$@"

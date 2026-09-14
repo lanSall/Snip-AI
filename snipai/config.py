@@ -86,10 +86,31 @@ class NotifyConfig:
     sound: bool = False
 
 
+DEFAULT_MODELS = {
+    "gemini": "gemini-2.5-pro",
+    "google": "gemini-2.5-pro",
+    "openai": "gpt-4o",
+    "openai_compatible": "gpt-4o",
+    "anthropic": "claude-sonnet-4-5",
+    "openrouter": "openai/gpt-4o",
+    "ollama": "llama3.2-vision",
+    "mock": "mock",
+}
+
+KEY_SIGNUP_URLS = {
+    "gemini": "https://aistudio.google.com/api-keys",
+    "google": "https://aistudio.google.com/api-keys",
+    "openai": "https://platform.openai.com/api-keys",
+    "anthropic": "https://console.anthropic.com/settings/keys",
+    "openrouter": "https://openrouter.ai/keys",
+    "ollama": "https://ollama.com/",
+}
+
+
 @dataclass
 class Config:
-    provider: str = "openai"
-    model: str = "gpt-4o"
+    provider: str = "gemini"
+    model: str = "gemini-2.5-pro"
     api_key: str = ""
     base_url: str = ""
     hotkey: str = "ctrl+shift+space"
@@ -190,6 +211,60 @@ def looks_like_gemini_key(key: str) -> bool:
     return stripped.startswith("AIza") or stripped.startswith("AQ.")
 
 
+def infer_provider(api_key: str, fallback: str = "gemini") -> str:
+    """Guess the provider from a pasted key so the user does not have to pick one."""
+    stripped = (api_key or "").strip()
+    if looks_like_gemini_key(stripped):
+        return "gemini"
+    if stripped.startswith("sk-ant"):
+        return "anthropic"
+    if stripped.startswith("sk-or-"):
+        return "openrouter"
+    if stripped.startswith("sk-"):
+        return "openai"
+    chosen = (fallback or "gemini").strip().lower() or "gemini"
+    return chosen
+
+
+def needs_setup(config: Config) -> bool:
+    """True when the app cannot call a model until the user pastes a key."""
+    provider = config.provider.lower().strip()
+    if provider in {"mock", "ollama"}:
+        return False
+    return not bool(config.resolved_api_key())
+
+
+def apply_setup(
+    config: Config,
+    *,
+    api_key: str,
+    provider: str | None = None,
+    model: str | None = None,
+) -> Config:
+    """Fill provider, model, and api_key from the setup window or ``snip-ai init --key``."""
+    key = (api_key or "").strip()
+    chosen = (provider or "").strip().lower() or None
+    inferred = infer_provider(key, fallback=chosen or config.provider or "gemini")
+    # Honor an explicit non-default provider. If they left Gemini (the default)
+    # and pasted an OpenAI/Anthropic key, switch automatically.
+    if chosen and chosen != "gemini":
+        provider_out = chosen
+    elif key:
+        provider_out = inferred
+    else:
+        provider_out = chosen or config.provider or "gemini"
+
+    stock = set(DEFAULT_MODELS.values())
+    model_out = (model or "").strip() or config.model
+    if not model_out or model_out in stock:
+        model_out = DEFAULT_MODELS.get(provider_out, model_out or DEFAULT_MODELS["gemini"])
+
+    config.provider = provider_out
+    config.model = model_out
+    config.api_key = key
+    return prepare_config(config)
+
+
 def prepare_config(config: Config) -> Config:
     """Fill Gemini provider/model when the key or provider says Gemini."""
     provider = config.provider.lower().strip()
@@ -248,14 +323,49 @@ notify:
 """
 
 
+def _protect_config_file(path: Path) -> None:
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
 def write_example_config(path: Path | None = None) -> Path:
     config_path = path or default_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
     if config_path.exists():
         return config_path
     config_path.write_text(EXAMPLE_YAML, encoding="utf-8")
-    try:
-        os.chmod(config_path, 0o600)
-    except OSError:
-        pass
+    _protect_config_file(config_path)
+    return config_path
+
+
+def save_config(config: Config, path: Path | None = None) -> Path:
+    """Write the live settings file (used by the setup window)."""
+    config_path = path or default_config_path()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    data: dict[str, Any] = {
+        "provider": config.provider,
+        "model": config.model,
+        "api_key": config.api_key,
+        "base_url": config.base_url,
+        "hotkey": config.hotkey,
+        "region_hotkey": config.region_hotkey,
+        "capture_mode": config.capture_mode,
+        "clipboard": config.clipboard,
+        "save_shots": config.save_shots,
+        "shots_dir": config.shots_dir,
+        "max_image_width": config.max_image_width,
+        "notify": asdict(config.notify),
+    }
+    if config.system_prompt != DEFAULT_SYSTEM_PROMPT:
+        data["system_prompt"] = config.system_prompt
+    if config.mock_reply:
+        data["mock_reply"] = config.mock_reply
+    header = (
+        "# snip-ai settings\n"
+        "# You can change the API key from the setup window (run snip-ai, or snip-ai init).\n"
+    )
+    config_path.write_text(header + yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    _protect_config_file(config_path)
     return config_path
