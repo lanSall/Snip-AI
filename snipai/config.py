@@ -86,9 +86,22 @@ class NotifyConfig:
     sound: bool = False
 
 
+DEFAULT_GEMINI_MODEL = "gemini-3.1-pro-preview"
+# Old defaults Google now rejects for new API keys ("no longer available to new users").
+LEGACY_GEMINI_MODELS = frozenset(
+    {
+        "gemini-2.5-pro",
+        "gemini-2.5-pro-preview-03-25",
+        "gemini-2.5-pro-preview-05-06",
+        "gemini-2.5-pro-preview-06-05",
+        "gemini-pro",
+        "gemini-pro-vision",
+    }
+)
+
 DEFAULT_MODELS = {
-    "gemini": "gemini-2.5-pro",
-    "google": "gemini-2.5-pro",
+    "gemini": DEFAULT_GEMINI_MODEL,
+    "google": DEFAULT_GEMINI_MODEL,
     "openai": "gpt-4o",
     "openai_compatible": "gpt-4o",
     "anthropic": "claude-sonnet-4-5",
@@ -110,7 +123,7 @@ KEY_SIGNUP_URLS = {
 @dataclass
 class Config:
     provider: str = "gemini"
-    model: str = "gemini-2.5-pro"
+    model: str = DEFAULT_GEMINI_MODEL
     api_key: str = ""
     base_url: str = ""
     hotkey: str = "ctrl+shift+space"
@@ -254,15 +267,25 @@ def apply_setup(
     else:
         provider_out = chosen or config.provider or "gemini"
 
-    stock = set(DEFAULT_MODELS.values())
+    stock = set(DEFAULT_MODELS.values()) | set(LEGACY_GEMINI_MODELS)
     model_out = (model or "").strip() or config.model
     if not model_out or model_out in stock:
-        model_out = DEFAULT_MODELS.get(provider_out, model_out or DEFAULT_MODELS["gemini"])
+        model_out = DEFAULT_MODELS.get(provider_out, model_out or DEFAULT_GEMINI_MODEL)
 
     config.provider = provider_out
     config.model = model_out
     config.api_key = key
     return prepare_config(config)
+
+
+def should_replace_gemini_model(model: str) -> bool:
+    name = (model or "").strip()
+    if not name or name.startswith("gpt-"):
+        return True
+    lower = name.lower()
+    if lower in LEGACY_GEMINI_MODELS or lower.startswith("gemini-2.5-pro"):
+        return True
+    return False
 
 
 def prepare_config(config: Config) -> Config:
@@ -273,8 +296,8 @@ def prepare_config(config: Config) -> Config:
         provider in {"openai", "openai_compatible"} and looks_like_gemini_key(key)
     ):
         config.provider = "gemini"
-        if not config.model.strip() or config.model.startswith("gpt-"):
-            config.model = "gemini-2.5-pro"
+        if should_replace_gemini_model(config.model):
+            config.model = DEFAULT_GEMINI_MODEL
     return config
 
 
@@ -287,7 +310,11 @@ def load_config(path: Path | None = None) -> Config:
         return prepare_config(from_dict({}))
     if not isinstance(loaded, dict):
         raise SnipError(f"Config file must be a YAML mapping: {config_path}")
-    return prepare_config(from_dict(loaded))
+    file_model = str(loaded.get("model", "")).strip()
+    config = prepare_config(from_dict(loaded))
+    if file_model and file_model != config.model and should_replace_gemini_model(file_model):
+        save_config(config, config_path)
+    return config
 
 
 def config_to_dict(config: Config) -> dict[str, Any]:
@@ -300,7 +327,7 @@ EXAMPLE_YAML = """# snip-ai config
 # Get a Gemini key at https://aistudio.google.com/api-keys
 
 provider: gemini          # gemini | openai | anthropic | openrouter | openai_compatible | ollama | mock
-model: gemini-2.5-pro
+model: gemini-3.1-pro-preview
 api_key: ""               # paste your Gemini/OpenAI/Anthropic key here
 base_url: ""              # optional override, e.g. http://127.0.0.1:11434/v1
 

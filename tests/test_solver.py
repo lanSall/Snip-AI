@@ -106,7 +106,7 @@ def test_gemini_solver_uses_google_openai_url(tiny_png: bytes):
         return httpx.Response(200, json={"choices": [{"message": {"content": "ANSWER: 1"}}]})
 
     solver = make_solver(
-        Config(provider="gemini", api_key="AIza-test", model="gemini-2.5-pro"),
+        Config(provider="gemini", api_key="AIza-test", model="gemini-3.1-pro-preview"),
         client=httpx.Client(transport=httpx.MockTransport(handler)),
     )
     assert solver.solve(tiny_png).startswith("ANSWER: 1")
