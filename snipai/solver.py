@@ -77,6 +77,11 @@ class OpenAICompatibleSolver:
                 },
             ],
         }
+        if self.config.provider.lower().strip() in {"gemini", "google"}:
+            # Flash/Pro "thinking" can exceed a short HTTP timeout on screenshots.
+            payload["extra_body"] = {
+                "google": {"thinking_config": {"thinking_level": "low"}}
+            }
         response = _post(self.client, url, headers=headers, json=payload)
         try:
             content = response["choices"][0]["message"]["content"]
@@ -167,6 +172,10 @@ class OllamaSolver:
         return str(content).strip()
 
 
+def _http_timeout() -> httpx.Timeout:
+    return httpx.Timeout(connect=20.0, read=180.0, write=60.0, pool=20.0)
+
+
 def _post(
     client: httpx.Client | None,
     url: str,
@@ -177,12 +186,27 @@ def _post(
     closer = None
     http = client
     if http is None:
-        http = httpx.Client(timeout=60.0)
+        http = httpx.Client(timeout=_http_timeout())
         closer = http
     try:
-        response = http.post(url, headers=headers, json=json)
-    except httpx.HTTPError as exc:
-        raise SnipError(f"Could not reach the model API: {exc}") from exc
+        response = None
+        last_timeout: httpx.TimeoutException | None = None
+        for _attempt in range(2):
+            try:
+                response = http.post(url, headers=headers, json=json)
+                last_timeout = None
+                break
+            except httpx.TimeoutException as exc:
+                last_timeout = exc
+                continue
+            except httpx.HTTPError as exc:
+                raise SnipError(f"Could not reach the model API: {exc}") from exc
+        if last_timeout is not None:
+            raise SnipError(
+                "The model took too long to answer. Try Ctrl+Shift+. and snip a smaller "
+                "area, or set model to gemini-3.1-flash-lite."
+            ) from last_timeout
+        assert response is not None
     finally:
         if closer is not None:
             closer.close()
