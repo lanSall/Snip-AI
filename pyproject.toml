@@ -1,6 +1,6 @@
 [project]
 name = "snip-ai"
-version = "0.1.3"
+version = "0.1.4"
 description = "Capture the current screen with a hotkey, solve it with a vision model, and get a discreet notification with the answer."
 readme = "README.md"
 requires-python = ">=3.10"

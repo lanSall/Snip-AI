@@ -45,22 +45,19 @@ def run_setup_wizard(
     result: dict[str, Config | None] = {"config": None}
     owns_root = master is None
     root: tk.Misc = tk.Tk() if owns_root else tk.Toplevel(master)
+    if not owns_root and master is not None and sys.platform == "win32":
+        # Pulse the hidden toast root so Windows actually maps this Toplevel.
+        try:
+            master.deiconify()
+            master.withdraw()
+        except tk.TclError:
+            pass
     root.title("snip-ai settings" if running else "snip-ai setup")
     root.configure(bg=BG)
     try:
         root.resizable(False, False)
     except tk.TclError:
         pass
-    try:
-        root.attributes("-topmost", True)
-    except tk.TclError:
-        pass
-    if not owns_root:
-        try:
-            root.transient(master)
-            root.grab_set()
-        except tk.TclError:
-            pass
 
     provider_var = tk.StringVar(value=_provider_or_gemini(config.provider))
     key_var = tk.StringVar(value=config.api_key)
@@ -287,11 +284,7 @@ def run_setup_wizard(
         root.geometry(f"{width}x{height}+{x}+{y}")
     except tk.TclError:
         pass
-    try:
-        root.lift()
-        root.focus_force()
-    except tk.TclError:
-        pass
+    _bring_to_front(root)
     if owns_root:
         root.mainloop()
         try:
@@ -301,6 +294,48 @@ def run_setup_wizard(
     else:
         master.wait_window(root)  # type: ignore[union-attr]
     return result["config"]
+
+
+def _bring_to_front(win: tk.Misc) -> None:
+    """Show a dialog above other windows. Needed after a tray click on Windows."""
+    try:
+        win.deiconify()
+    except tk.TclError:
+        pass
+    try:
+        win.lift()
+        win.focus_force()
+        win.attributes("-topmost", True)
+    except tk.TclError:
+        pass
+    try:
+        win.update()
+    except tk.TclError:
+        pass
+    if sys.platform == "win32":
+        try:
+            import ctypes
+
+            hwnd = int(win.winfo_id())
+            user32 = ctypes.windll.user32
+            parent = user32.GetParent(hwnd)
+            if parent:
+                hwnd = parent
+            user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+            user32.SetForegroundWindow(hwnd)
+            user32.BringWindowToTop(hwnd)
+        except Exception:
+            pass
+    try:
+        def _clear_topmost() -> None:
+            try:
+                win.attributes("-topmost", False)
+            except tk.TclError:
+                pass
+
+        win.after(400, _clear_topmost)
+    except tk.TclError:
+        pass
 
 
 def _provider_or_gemini(provider: str) -> str:
