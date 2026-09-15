@@ -176,11 +176,13 @@ def _cmd_with_config(command: str, args: argparse.Namespace) -> int:
     if command == "run":
         _require_tk()
         from snipai.ui import ToastUI
+        from snipai.tray import start_tray, tray_available
+
         ui = ToastUI(config.notify)
-        app = SnipApp(config, solver, ui)
+        app = SnipApp(config, solver, ui, config_path=config_path)
         print(
             f"snip-ai {__version__}  ·  {config.hotkey} current screen  ·  "
-            f"{config.region_hotkey} region snip  ·  Ctrl+C to quit",
+            f"{config.region_hotkey} region snip  ·  {config.settings_hotkey} settings",
             flush=True,
         )
         exists = config_path.is_file()
@@ -195,11 +197,27 @@ def _cmd_with_config(command: str, args: argparse.Namespace) -> int:
                 "or: snip-ai init --key YOUR_KEY",
                 file=sys.stderr,
             )
+        icon = None
+        if tray_available():
+
+            def on_quit() -> None:
+                quit_fn = getattr(ui, "quit", None)
+                if callable(quit_fn):
+                    quit_fn()
+                else:
+                    ui.destroy()
+
+            icon = start_tray(on_settings=app.open_settings, on_quit=on_quit)
         try:
             app.run_hotkeys()
         except KeyboardInterrupt:
             print("\nbye")
         finally:
+            if icon is not None:
+                try:
+                    icon.stop()
+                except Exception:
+                    pass
             ui.destroy()
         return 0
 
@@ -259,13 +277,13 @@ def _setup_logging() -> None:
     log_dir = user_data_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "snip-ai.log"
+    handlers: list[logging.Handler] = [logging.FileHandler(log_path, encoding="utf-8")]
+    if sys.stderr is not None:
+        handlers.append(logging.StreamHandler(sys.stderr))
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        handlers=[
-            logging.FileHandler(log_path, encoding="utf-8"),
-            logging.StreamHandler(sys.stderr),
-        ],
+        handlers=handlers,
     )
 
 

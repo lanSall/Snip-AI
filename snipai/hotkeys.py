@@ -31,6 +31,7 @@ _KEY_ALIASES = {
     "return": "enter",
     "period": ".",
     "dot": ".",
+    "comma": ",",
     "slash": "/",
     "backslash": "\\",
 }

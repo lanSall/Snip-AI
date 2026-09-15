@@ -85,6 +85,18 @@ def main() -> int:
         return 1
 
     extra = sys.argv[1:]
+    command = extra[0] if extra else "run"
+    keep_console = os.environ.get("SNIPAI_CONSOLE") == "1" or command != "run"
+    if os.name == "nt" and not keep_console:
+        pythonw = python.with_name("pythonw.exe")
+        if pythonw.is_file():
+            subprocess.Popen(
+                [str(pythonw), "-m", "snipai", *extra],
+                cwd=str(ROOT),
+                close_fds=True,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            return 0
     return subprocess.call([str(python), "-m", "snipai", *extra])
 
 

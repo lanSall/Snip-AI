@@ -1,11 +1,13 @@
 from pathlib import Path
 
 from snipai.config import (
+    DEFAULT_GEMINI_MODEL,
     apply_setup,
     from_dict,
     infer_provider,
     load_config,
     looks_like_gemini_key,
+    models_for_provider,
     needs_setup,
     prepare_config,
     resolve_config_path,
@@ -17,10 +19,19 @@ from snipai.config import (
 def test_defaults():
     config = from_dict({})
     assert config.provider == "gemini"
-    assert config.model == "gemini-3.1-pro-preview"
+    assert config.model == "gemini-3.8-flash"
+    assert config.model == DEFAULT_GEMINI_MODEL
     assert config.hotkey == "ctrl+shift+space"
+    assert config.settings_hotkey == "ctrl+shift+slash"
     assert config.notify.position == "bottom-right"
     assert config.notify.sound is False
+
+
+def test_models_for_provider_lists_flash_first():
+    ids = [mid for mid, _label in models_for_provider("gemini")]
+    assert ids[0] == "gemini-3.8-flash"
+    assert "gemini-3.1-flash-lite" in ids
+    assert "gemini-3.1-pro-preview" in ids
 
 
 def test_env_overrides_provider_and_key(monkeypatch):
@@ -54,7 +65,7 @@ def test_gemini_key_switches_openai_defaults(monkeypatch):
         from_dict({"provider": "openai", "api_key": "AIzaSyTestKey", "model": "gpt-4o"})
     )
     assert config.provider == "gemini"
-    assert config.model == "gemini-3.1-pro-preview"
+    assert config.model == "gemini-3.8-flash"
 
 
 def test_looks_like_gemini_key():
@@ -68,7 +79,7 @@ def test_load_missing_file_uses_defaults(tmp_path: Path, monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     config = load_config()
-    assert config.model == "gemini-3.1-pro-preview"
+    assert config.model == "gemini-3.8-flash"
 
 
 def test_cwd_config_is_discovered(tmp_path: Path, monkeypatch):
@@ -135,7 +146,11 @@ def test_save_config_roundtrip(tmp_path: Path, monkeypatch):
     loaded = load_config(path)
     assert loaded.api_key == "AIzaSyTESTKEY"
     assert loaded.provider == "gemini"
-    assert "api_key:" in path.read_text(encoding="utf-8")
+    assert loaded.model == "gemini-3.8-flash"
+    assert loaded.settings_hotkey == "ctrl+shift+slash"
+    text = path.read_text(encoding="utf-8")
+    assert "api_key:" in text
+    assert "settings_hotkey:" in text
 
 
 def test_example_files_do_not_contain_live_keys():
@@ -149,6 +164,13 @@ def test_example_files_do_not_contain_live_keys():
 
 def test_prepare_config_upgrades_retired_gemini_default():
     config = prepare_config(from_dict({"provider": "gemini", "model": "gemini-2.5-pro", "api_key": "AIza-test"}))
+    assert config.model == "gemini-3.8-flash"
+
+
+def test_prepare_config_keeps_gemini_31_pro():
+    config = prepare_config(
+        from_dict({"provider": "gemini", "model": "gemini-3.1-pro-preview", "api_key": "AIza-test"})
+    )
     assert config.model == "gemini-3.1-pro-preview"
 
 
@@ -159,6 +181,39 @@ def test_load_config_rewrites_retired_gemini_model(tmp_path: Path, monkeypatch):
     path = tmp_path / "config.yaml"
     path.write_text("provider: gemini\nmodel: gemini-2.5-pro\napi_key: AIza-test\n", encoding="utf-8")
     config = load_config(path)
+    assert config.model == "gemini-3.8-flash"
+    assert "gemini-3.8-flash" in path.read_text(encoding="utf-8")
+    assert "gemini-2.5-pro" not in path.read_text(encoding="utf-8")
+
+
+def test_load_config_does_not_rewrite_gemini_31_pro(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("SNIPAI_MODEL", raising=False)
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "provider: gemini\nmodel: gemini-3.1-pro-preview\napi_key: AIza-test\n",
+        encoding="utf-8",
+    )
+    config = load_config(path)
     assert config.model == "gemini-3.1-pro-preview"
     assert "gemini-3.1-pro-preview" in path.read_text(encoding="utf-8")
-    assert "gemini-2.5-pro" not in path.read_text(encoding="utf-8")
+
+
+def test_apply_setup_keeps_explicit_model():
+    config = apply_setup(
+        from_dict({"provider": "gemini"}),
+        api_key="AIzaSyTESTKEY",
+        provider="gemini",
+        model="gemini-3.1-flash-lite",
+    )
+    assert config.model == "gemini-3.1-flash-lite"
+
+
+def test_apply_setup_keeps_existing_pro_when_model_omitted():
+    config = apply_setup(
+        from_dict({"provider": "gemini", "model": "gemini-3.1-pro-preview"}),
+        api_key="AIzaSyTESTKEY",
+        provider="gemini",
+    )
+    assert config.model == "gemini-3.1-pro-preview"
