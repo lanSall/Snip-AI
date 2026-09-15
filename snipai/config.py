@@ -87,7 +87,7 @@ class NotifyConfig:
     sound: bool = False
 
 
-DEFAULT_GEMINI_MODEL = "gemini-3.1-pro-preview"
+DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
 # Old defaults Google now rejects for new API keys ("no longer available to new users").
 LEGACY_GEMINI_MODELS = frozenset(
     {
@@ -120,6 +120,38 @@ KEY_SIGNUP_URLS = {
     "ollama": "https://ollama.com/",
 }
 
+GEMINI_MODEL_CHOICES = (
+    ("gemini-3.8-flash", "Gemini 3.8 Flash (recommended, free)"),
+    ("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite (fastest)"),
+    ("gemini-3-flash-preview", "Gemini 3 Flash Preview"),
+    ("gemini-3.1-pro-preview", "Gemini 3.1 Pro (smarter, tighter limits)"),
+)
+
+PROVIDER_MODELS: dict[str, tuple[tuple[str, str], ...]] = {
+    "gemini": GEMINI_MODEL_CHOICES,
+    "google": GEMINI_MODEL_CHOICES,
+    "openai": (
+        ("gpt-4o", "GPT-4o"),
+        ("gpt-4o-mini", "GPT-4o mini (cheaper)"),
+    ),
+    "anthropic": (
+        ("claude-sonnet-4-5", "Claude Sonnet"),
+        ("claude-haiku-4-5", "Claude Haiku (faster)"),
+    ),
+    "openrouter": (
+        ("openai/gpt-4o", "GPT-4o via OpenRouter"),
+        ("google/gemini-2.5-flash", "Gemini Flash via OpenRouter"),
+    ),
+    "ollama": (
+        ("llama3.2-vision", "llama3.2-vision"),
+        ("llava", "LLaVA"),
+    ),
+}
+
+
+def models_for_provider(provider: str) -> tuple[tuple[str, str], ...]:
+    return PROVIDER_MODELS.get((provider or "").lower().strip(), GEMINI_MODEL_CHOICES)
+
 
 @dataclass
 class Config:
@@ -129,6 +161,7 @@ class Config:
     base_url: str = ""
     hotkey: str = "ctrl+shift+space"
     region_hotkey: str = "ctrl+shift+period"
+    settings_hotkey: str = "ctrl+shift+slash"
     capture_mode: str = "screen"
     clipboard: bool = True
     save_shots: bool = False
@@ -209,6 +242,7 @@ def from_dict(raw: dict[str, Any] | None) -> Config:
         base_url=str(data.get("base_url", defaults.base_url)),
         hotkey=hotkey,
         region_hotkey=str(data.get("region_hotkey", defaults.region_hotkey)),
+        settings_hotkey=str(data.get("settings_hotkey", defaults.settings_hotkey)),
         capture_mode=str(data.get("capture_mode", defaults.capture_mode)),
         clipboard=bool(data.get("clipboard", defaults.clipboard)),
         save_shots=bool(data.get("save_shots", defaults.save_shots)),
@@ -268,10 +302,14 @@ def apply_setup(
     else:
         provider_out = chosen or config.provider or "gemini"
 
-    stock = set(DEFAULT_MODELS.values()) | set(LEGACY_GEMINI_MODELS)
-    model_out = (model or "").strip() or config.model
-    if not model_out or model_out in stock:
-        model_out = DEFAULT_MODELS.get(provider_out, model_out or DEFAULT_GEMINI_MODEL)
+    explicit = (model or "").strip()
+    if explicit:
+        model_out = explicit
+    else:
+        stock = set(DEFAULT_MODELS.values()) | set(LEGACY_GEMINI_MODELS)
+        model_out = config.model
+        if not model_out or model_out in stock:
+            model_out = DEFAULT_MODELS.get(provider_out, model_out or DEFAULT_GEMINI_MODEL)
 
     config.provider = provider_out
     config.model = model_out
@@ -334,13 +372,14 @@ EXAMPLE_YAML = """# snip-ai config
 # Get a Gemini key at https://aistudio.google.com/api-keys
 
 provider: gemini          # gemini | openai | anthropic | openrouter | openai_compatible | ollama | mock
-model: gemini-3.1-pro-preview
+model: gemini-3.8-flash
 api_key: ""               # paste your Gemini/OpenAI/Anthropic key here
 base_url: ""              # optional override, e.g. http://127.0.0.1:11434/v1
 
 # Global hotkeys. Use ctrl, alt, shift, cmd (Windows key / Command).
 hotkey: ctrl+shift+space          # capture the monitor under the cursor
 region_hotkey: ctrl+shift+period  # drag a rectangle, then solve that snip
+settings_hotkey: ctrl+shift+slash # open Settings (key and model)
 capture_mode: screen              # screen | region  (used by `snip-ai once`)
 
 clipboard: true           # copy the full answer so you can paste it
@@ -385,6 +424,7 @@ def save_config(config: Config, path: Path | None = None) -> Path:
         "base_url": config.base_url,
         "hotkey": config.hotkey,
         "region_hotkey": config.region_hotkey,
+        "settings_hotkey": config.settings_hotkey,
         "capture_mode": config.capture_mode,
         "clipboard": config.clipboard,
         "save_shots": config.save_shots,
@@ -398,7 +438,7 @@ def save_config(config: Config, path: Path | None = None) -> Path:
         data["mock_reply"] = config.mock_reply
     header = (
         "# snip-ai settings\n"
-        "# You can change the API key from the setup window (run snip-ai, or snip-ai init).\n"
+        "# You can change the key and model from Settings (tray icon, or Ctrl+Shift+/).\n"
     )
     config_path.write_text(header + yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
     _protect_config_file(config_path)

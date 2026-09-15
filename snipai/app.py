@@ -12,10 +12,10 @@ from typing import Any, Protocol
 from snipai import SnipError
 from snipai.capture import prepare_png, snapshot_current
 from snipai.clipboard import copy_text
-from snipai.config import Config
+from snipai.config import Config, load_config
 from snipai.formatting import parse_solution, toast_body
 from snipai.hotkeys import start_hotkeys
-from snipai.solver import Solver
+from snipai.solver import Solver, make_solver
 
 log = logging.getLogger("snipai")
 
@@ -31,12 +31,21 @@ class UserInterface(Protocol):
 
 
 class SnipApp:
-    def __init__(self, config: Config, solver: Solver, ui: UserInterface) -> None:
+    def __init__(
+        self,
+        config: Config,
+        solver: Solver,
+        ui: UserInterface,
+        *,
+        config_path: Path | None = None,
+    ) -> None:
         self.config = config
         self.solver = solver
         self.ui = ui
+        self.config_path = config_path
         self._lock = threading.Lock()
         self._busy = False
+        self._settings_open = False
 
     def capture_screen(self) -> None:
         self._start_job("screen")
@@ -55,18 +64,43 @@ class SnipApp:
         log.info("Answer: %s", headline)
         return answer
 
+    def open_settings(self) -> None:
+        """Hotkey and tray both land here; the dialog must run on the Tk thread."""
+        self.ui.schedule(self._open_settings_ui)
+
+    def _open_settings_ui(self) -> None:
+        from snipai.config import save_config
+        from snipai.setup_ui import run_setup_wizard
+
+        if self._settings_open or self.config_path is None:
+            return
+        self._settings_open = True
+        try:
+            root = getattr(self.ui, "root", None)
+            updated = run_setup_wizard(self.config, master=root, running=True)
+            if updated is not None:
+                save_config(updated, self.config_path)
+                self.config = load_config(self.config_path)
+                self.solver = make_solver(self.config)
+                self._toast("snip-ai", f"Using {self.config.model}", duration_ms=2500)
+        except Exception as exc:
+            log.exception("Settings failed")
+            self._toast("snip-ai", f"Settings failed: {exc}", duration_ms=4000)
+        finally:
+            self._settings_open = False
+
     def run_hotkeys(self) -> None:
-        listener = start_hotkeys(
-            {
-                self.config.hotkey: self.capture_screen,
-                self.config.region_hotkey: self.capture_region,
-            }
-        )
-        self._toast(
-            "snip-ai",
-            f"{self.config.hotkey} screen · {self.config.region_hotkey} snip",
-            duration_ms=3500,
-        )
+        bindings = {
+            self.config.hotkey: self.capture_screen,
+            self.config.region_hotkey: self.capture_region,
+        }
+        if self.config.settings_hotkey:
+            bindings[self.config.settings_hotkey] = self.open_settings
+        listener = start_hotkeys(bindings)
+        hint = f"{self.config.hotkey} screen · {self.config.region_hotkey} snip"
+        if self.config.settings_hotkey:
+            hint += f" · {self.config.settings_hotkey} settings"
+        self._toast("snip-ai", hint, duration_ms=4000)
         try:
             self.ui.mainloop()
         finally:

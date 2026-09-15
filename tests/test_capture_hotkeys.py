@@ -9,6 +9,8 @@ def test_to_pynput_space_and_period():
     assert to_pynput("ctrl+shift+period") == "<ctrl>+<shift>+."
     assert to_pynput("Ctrl-Alt-S") == "<ctrl>+<alt>+s"
     assert to_pynput("win+shift+a") == "<cmd>+<shift>+a"
+    assert to_pynput("ctrl+shift+slash") == "<ctrl>+<shift>+/"
+    assert to_pynput("ctrl+shift+comma") == "<ctrl>+<shift>+,"
 
 
 def test_monitor_containing_picks_the_screen_under_the_point():

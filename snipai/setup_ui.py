@@ -1,4 +1,4 @@
-"""Simple first-run window: paste a key, click Save, start capturing."""
+"""Simple setup window: paste a key, pick a model, click Save."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import tkinter as tk
 import webbrowser
 from tkinter import ttk
 
-from snipai.config import KEY_SIGNUP_URLS, Config, apply_setup
+from snipai.config import KEY_SIGNUP_URLS, Config, apply_setup, models_for_provider
 
 BG = "#1b1d21"
 FG = "#f3f4f6"
@@ -31,18 +31,36 @@ _FONT_BOLD = ("Segoe UI", 14, "bold") if sys.platform == "win32" else ("sans-ser
 _FONT_SMALL = ("Segoe UI", 9) if sys.platform == "win32" else ("sans-serif", 9)
 
 
-def run_setup_wizard(config: Config) -> Config | None:
-    """Blocking setup window. Returns an updated config, or None if cancelled."""
-    result: dict[str, Config | None] = {"config": None}
+def run_setup_wizard(
+    config: Config,
+    *,
+    master: tk.Misc | None = None,
+    running: bool = False,
+) -> Config | None:
+    """Blocking setup window. Returns an updated config, or None if cancelled.
 
-    root = tk.Tk()
-    root.title("snip-ai setup")
+    When ``master`` is a live Tk root (app already running), the window is a
+    Toplevel so it can share that loop.
+    """
+    result: dict[str, Config | None] = {"config": None}
+    owns_root = master is None
+    root: tk.Misc = tk.Tk() if owns_root else tk.Toplevel(master)
+    root.title("snip-ai settings" if running else "snip-ai setup")
     root.configure(bg=BG)
-    root.resizable(False, False)
+    try:
+        root.resizable(False, False)
+    except tk.TclError:
+        pass
     try:
         root.attributes("-topmost", True)
     except tk.TclError:
         pass
+    if not owns_root:
+        try:
+            root.transient(master)
+            root.grab_set()
+        except tk.TclError:
+            pass
 
     provider_var = tk.StringVar(value=_provider_or_gemini(config.provider))
     key_var = tk.StringVar(value=config.api_key)
@@ -53,19 +71,24 @@ def run_setup_wizard(config: Config) -> Config | None:
     outer.pack(fill="both", expand=True)
     frame = tk.Frame(outer, bg=BG, padx=28, pady=24)
     frame.pack(fill="both", expand=True)
-    frame.configure(width=460)
-    frame.pack_propagate(True)
 
-    tk.Label(frame, text="snip-ai", bg=BG, fg=ACCENT, font=_FONT_BOLD, anchor="w").pack(fill="x")
+    heading = "snip-ai settings" if running else "snip-ai"
+    blurb = (
+        "Change your API key or model here. After Save, hotkeys keep working."
+        if running
+        else "Paste an API key, pick a model, then a hotkey sends whatever is\n"
+        "on screen to AI and shows a tiny answer."
+    )
+    tk.Label(frame, text=heading, bg=BG, fg=ACCENT, font=_FONT_BOLD, anchor="w").pack(fill="x")
     tk.Label(
         frame,
-        text="Paste an API key once. After that, a hotkey sends\n"
-        "whatever is on screen to AI and shows a tiny answer.",
+        text=blurb,
         bg=BG,
         fg=MUTED,
         font=_FONT,
         justify="left",
         anchor="w",
+        wraplength=420,
     ).pack(fill="x", pady=(8, 18))
 
     tk.Label(frame, text="Which AI?", bg=BG, fg=FG, font=_FONT, anchor="w").pack(fill="x")
@@ -84,6 +107,35 @@ def run_setup_wizard(config: Config) -> Config | None:
             return ids[combo.current()]
         except Exception:
             return "gemini"
+
+    tk.Label(frame, text="Model", bg=BG, fg=FG, font=_FONT, anchor="w").pack(fill="x")
+    model_combo = ttk.Combobox(frame, state="readonly", font=_FONT)
+    model_combo.pack(fill="x", pady=(4, 12))
+
+    def fill_models(provider: str, current: str) -> None:
+        choices = list(models_for_provider(provider))
+        ids_m = [mid for mid, _label in choices]
+        labels_m = [label for _mid, label in choices]
+        if current and current not in ids_m:
+            ids_m.append(current)
+            labels_m.append(current)
+        model_combo.configure(values=labels_m)
+        model_combo._ids = ids_m  # type: ignore[attr-defined]
+        try:
+            model_combo.current(ids_m.index(current) if current in ids_m else 0)
+        except Exception:
+            if labels_m:
+                model_combo.current(0)
+
+    def selected_model() -> str:
+        ids_m = getattr(model_combo, "_ids", [])
+        try:
+            return ids_m[model_combo.current()]
+        except Exception:
+            choices = models_for_provider(selected_provider())
+            return choices[0][0] if choices else config.model
+
+    fill_models(selected_provider(), config.model)
 
     tk.Label(frame, text="API key", bg=BG, fg=FG, font=_FONT, anchor="w").pack(fill="x")
     key_row = tk.Frame(frame, bg=BG)
@@ -145,9 +197,10 @@ def run_setup_wizard(config: Config) -> Config | None:
 
     tk.Label(frame, textvariable=error_var, bg=BG, fg=DANGER, font=_FONT_SMALL, anchor="w").pack(fill="x")
 
-    def refresh_link(_event: object | None = None) -> None:
+    def refresh_provider(_event: object | None = None) -> None:
         provider = selected_provider()
         provider_var.set(provider)
+        fill_models(provider, selected_model() if provider == config.provider else "")
         if provider == "ollama":
             link.configure(text="How to install Ollama — opens in your browser")
             error_var.set("")
@@ -160,7 +213,7 @@ def run_setup_wizard(config: Config) -> Config | None:
         else:
             link.configure(text="Get a free Gemini key — opens in your browser")
 
-    combo.bind("<<ComboboxSelected>>", refresh_link)
+    combo.bind("<<ComboboxSelected>>", refresh_provider)
 
     def save_and_close() -> None:
         provider = selected_provider()
@@ -168,7 +221,9 @@ def run_setup_wizard(config: Config) -> Config | None:
         if provider != "ollama" and not key:
             error_var.set("Paste a key, or choose Ollama if you run a model locally.")
             return
-        result["config"] = apply_setup(config, api_key=key, provider=provider)
+        result["config"] = apply_setup(
+            config, api_key=key, provider=provider, model=selected_model()
+        )
         root.destroy()
 
     def cancel() -> None:
@@ -195,7 +250,7 @@ def run_setup_wizard(config: Config) -> Config | None:
     ).pack(side="left")
     tk.Button(
         buttons,
-        text="Save and start",
+        text="Save" if running else "Save and start",
         command=save_and_close,
         bg=ACCENT,
         fg="#052e1a",
@@ -212,31 +267,39 @@ def run_setup_wizard(config: Config) -> Config | None:
 
     tk.Label(
         frame,
-        text="Then press Ctrl+Shift+Space for the whole screen,\nor Ctrl+Shift+Period to draw a box.",
+        text="Ctrl+Shift+Space  screen    ·    Ctrl+Shift+Period  snip\n"
+        "Ctrl+Shift+/  open this window again",
         bg=BG,
         fg=MUTED,
         font=_FONT_SMALL,
         anchor="w",
+        justify="left",
     ).pack(fill="x", pady=(18, 0))
 
     root.protocol("WM_DELETE_WINDOW", cancel)
     entry.focus_set()
     root.update_idletasks()
-    width = max(root.winfo_reqwidth(), 480)
+    width = max(root.winfo_reqwidth(), 500)
     height = root.winfo_reqheight()
     x = max(0, (root.winfo_screenwidth() - width) // 2)
     y = max(0, (root.winfo_screenheight() - height) // 3)
-    root.geometry(f"{width}x{height}+{x}+{y}")
+    try:
+        root.geometry(f"{width}x{height}+{x}+{y}")
+    except tk.TclError:
+        pass
     try:
         root.lift()
         root.focus_force()
     except tk.TclError:
         pass
-    root.mainloop()
-    try:
-        root.destroy()
-    except tk.TclError:
-        pass
+    if owns_root:
+        root.mainloop()
+        try:
+            root.destroy()
+        except tk.TclError:
+            pass
+    else:
+        master.wait_window(root)  # type: ignore[union-attr]
     return result["config"]
 
 

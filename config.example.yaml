@@ -3,13 +3,14 @@
 # Prefer the setup window (double-click Start) instead of editing this file.
 
 provider: gemini          # gemini | openai | anthropic | openrouter | openai_compatible | ollama | mock
-model: gemini-3.1-pro-preview
+model: gemini-3.8-flash
 api_key: ""               # paste your Gemini/OpenAI/Anthropic key here
 base_url: ""              # leave empty for Gemini; optional override for other providers
 
 # Global hotkeys. Use ctrl, alt, shift, cmd (Windows key / Command).
 hotkey: ctrl+shift+space          # capture the monitor under the cursor
 region_hotkey: ctrl+shift+period  # drag a rectangle, then solve that snip
+settings_hotkey: ctrl+shift+slash # open Settings (key and model)
 capture_mode: screen              # screen | region  (used by `snip-ai once`)
 
 clipboard: true           # copy the full answer so you can paste it

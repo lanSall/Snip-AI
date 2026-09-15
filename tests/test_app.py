@@ -59,6 +59,7 @@ def test_cli_init_with_key(tmp_path: Path, capsys):
     assert code == 0
     text = path.read_text(encoding="utf-8")
     assert "AIzaSyTESTKEY" in text
+    assert "gemini-3.8-flash" in text
     captured = capsys.readouterr()
     assert "Saved" in captured.out
 
@@ -87,6 +88,77 @@ def test_cli_solve_without_key_asks_for_setup(tmp_path: Path, math_problem_png: 
     captured = capsys.readouterr()
     assert code == 1
     assert "setup" in captured.err.lower() or "API key" in captured.err
+
+
+def test_open_settings_reloads_key_and_model(tmp_path: Path, monkeypatch):
+    from snipai.config import apply_setup, from_dict, save_config
+
+    path = tmp_path / "config.yaml"
+    cfg = apply_setup(
+        from_dict({}),
+        api_key="AIza-old",
+        provider="gemini",
+        model="gemini-3.8-flash",
+    )
+    save_config(cfg, path)
+
+    def fake_wizard(config, **kwargs):
+        assert kwargs.get("running") is True
+        return apply_setup(
+            config,
+            api_key="AIza-new",
+            provider="gemini",
+            model="gemini-3.1-flash-lite",
+        )
+
+    monkeypatch.setattr("snipai.setup_ui.run_setup_wizard", fake_wizard)
+    ui = FakeUI()
+    app = SnipApp(cfg, MockSolver("ANSWER: 1\nWHY: x"), ui, config_path=path)
+    app.open_settings()
+    assert app.config.api_key == "AIza-new"
+    assert app.config.model == "gemini-3.1-flash-lite"
+    saved = path.read_text(encoding="utf-8")
+    assert "AIza-new" in saved
+    assert "gemini-3.1-flash-lite" in saved
+    assert any("gemini-3.1-flash-lite" in body for _title, body in ui.toasts)
+
+
+def test_open_settings_cancel_leaves_config(tmp_path: Path, monkeypatch):
+    from snipai.config import apply_setup, from_dict, save_config
+
+    path = tmp_path / "config.yaml"
+    cfg = apply_setup(from_dict({}), api_key="AIza-keep", provider="gemini")
+    save_config(cfg, path)
+    monkeypatch.setattr("snipai.setup_ui.run_setup_wizard", lambda *a, **k: None)
+    ui = FakeUI()
+    app = SnipApp(cfg, MockSolver(), ui, config_path=path)
+    app.open_settings()
+    assert app.config.api_key == "AIza-keep"
+
+
+def test_run_hotkeys_binds_settings(monkeypatch):
+    seen: dict[str, set[str]] = {}
+
+    class LoopUI(FakeUI):
+        def mainloop(self) -> None:
+            return
+
+    def fake_start(bindings):
+        seen["keys"] = set(bindings)
+
+        class Listener:
+            def stop(self) -> None:
+                return None
+
+        return Listener()
+
+    monkeypatch.setattr("snipai.app.start_hotkeys", fake_start)
+    ui = LoopUI()
+    app = SnipApp(Config(), MockSolver(), ui)
+    app.run_hotkeys()
+    assert "ctrl+shift+space" in seen["keys"]
+    assert "ctrl+shift+period" in seen["keys"]
+    assert "ctrl+shift+slash" in seen["keys"]
 
 
 def test_sniperror_toast_survives_except_block(monkeypatch):
