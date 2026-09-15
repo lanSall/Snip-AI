@@ -49,6 +49,13 @@ def set_enabled(enabled: bool) -> Path | None:
 def _script_body() -> str:
     root = project_root()
     if _windows():
+        exe = root / "snip-ai.exe"
+        if exe.is_file():
+            return (
+                "Set sh = CreateObject(\"WScript.Shell\")\n"
+                f"sh.CurrentDirectory = \"{_vbs_escape(str(root))}\"\n"
+                f"sh.Run \"\"\"{_vbs_escape(str(exe))}\"\"\", 0, False\n"
+            )
         pythonw = Path(sys.executable)
         if pythonw.name.lower() == "python.exe":
             pythonw = pythonw.with_name("pythonw.exe")

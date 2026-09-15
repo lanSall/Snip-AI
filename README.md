@@ -19,7 +19,7 @@ You only need to do this once.
 1. **Install Python 3.10 or newer** from [python.org/downloads](https://www.python.org/downloads/).
    - Windows: in the installer, check **Add python.exe to PATH**. Leave the **tcl/tk** option on.
 2. **Start snip-ai**
-   - Windows: double-click `Start.bat` (a console may flash, then the app runs in the background)
+   - Windows: double-click **`snip-ai.exe`** (or `Start.bat`). A console may appear only on the first install.
    - Mac: double-click `Start.command` (if macOS warns it, right-click → Open)
    - Linux: run `./Start.sh` (Ubuntu/Debian also need `sudo apt install python3-venv python3-dev python3-tk`)
 3. A **setup window** asks for an API key. Click **Get a free Gemini key**, create one, paste it, pick a **model**, then **Save and start**.
@@ -46,7 +46,7 @@ The same setup window appears if no key is saved yet. You can also save a key wi
 snip-ai init --key YOUR_KEY
 ```
 
-Windows PowerShell: run `.\Start.bat` from this folder. To keep a debug console instead of hiding it, set `SNIPAI_CONSOLE=1` then start as usual.
+Windows PowerShell: run `.\Start.bat` from this folder if you want a console. To keep a debug console: `set SNIPAI_CONSOLE=1` then start as usual. Rebuild `snip-ai.exe` with `./scripts/build-windows-exe.sh` (needs MinGW).
 
 ## After it is running
 

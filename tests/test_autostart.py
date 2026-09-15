@@ -6,6 +6,7 @@ from snipai import autostart
 def test_autostart_writes_and_removes_windows_vbs(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(autostart, "_windows", lambda: True)
     monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setattr(autostart, "project_root", lambda: tmp_path)
     fake_python = tmp_path / "python.exe"
     monkeypatch.setattr(autostart.sys, "executable", str(fake_python))
 
@@ -21,6 +22,17 @@ def test_autostart_writes_and_removes_windows_vbs(tmp_path: Path, monkeypatch):
     autostart.set_enabled(False)
     assert not path.exists()
     assert not autostart.is_enabled()
+
+
+def test_autostart_prefers_snip_ai_exe(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(autostart, "_windows", lambda: True)
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setattr(autostart, "project_root", lambda: tmp_path)
+    (tmp_path / "snip-ai.exe").write_bytes(b"MZ")
+    path = autostart.set_enabled(True)
+    body = path.read_text(encoding="utf-8")
+    assert "snip-ai.exe" in body
+    assert "-m snipai run" not in body
 
 
 def test_autostart_linux_desktop(tmp_path: Path, monkeypatch):
