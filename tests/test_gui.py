@@ -73,6 +73,22 @@ def test_select_region_escape_cancels():
         ui.destroy()
 
 
+def test_history_window_lists_entry():
+    from snipai.history import AnswerHistory
+    from snipai.history_ui import show_history_window
+
+    ui = ToastUI(NotifyConfig(duration_ms=50))
+    hist = AnswerHistory()
+    hist.add("408", "ANSWER: 408\nWHY: 17 times 24.")
+    try:
+        win = show_history_window(hist, master=ui.root)
+        ui.root.update()
+        assert "408" in win._listbox.get(0)
+        win.destroy()
+    finally:
+        ui.destroy()
+
+
 def test_cancel_snip_closes_overlay():
     import tkinter as tk
 

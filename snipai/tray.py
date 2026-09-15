@@ -32,12 +32,25 @@ def make_icon_image() -> Image.Image:
     return img
 
 
-def start_tray(*, on_settings: Callable[[], None], on_quit: Callable[[], None]) -> Any:
+def start_tray(
+    *,
+    on_settings: Callable[[], None],
+    on_quit: Callable[[], None],
+    on_history: Callable[[], None] | None = None,
+) -> Any:
     """Run the tray icon in a background thread. Returns the icon (call ``stop()``)."""
     import pystray
     from pystray import Menu, MenuItem
 
     from snipai import autostart
+
+    def history(_icon: Any, _item: Any) -> None:
+        log.info("Tray: Last answers")
+        try:
+            if on_history:
+                on_history()
+        except Exception:
+            log.exception("Tray Last answers failed")
 
     def settings(_icon: Any, _item: Any) -> None:
         log.info("Tray: Settings")
@@ -67,12 +80,18 @@ def start_tray(*, on_settings: Callable[[], None], on_quit: Callable[[], None]) 
         except Exception:
             pass
 
-    menu = Menu(
-        MenuItem("Settings (key and model)", settings, default=True),
-        MenuItem("Open at login", toggle_login, checked=lambda item: autostart.is_enabled()),
-        Menu.SEPARATOR,
-        MenuItem("Quit snip-ai", quit_app),
+    items = []
+    if on_history is not None:
+        items.append(MenuItem("Last answers", history))
+    items.extend(
+        [
+            MenuItem("Settings (key and model)", settings, default=True),
+            MenuItem("Open at login", toggle_login, checked=lambda item: autostart.is_enabled()),
+            Menu.SEPARATOR,
+            MenuItem("Quit snip-ai", quit_app),
+        ]
     )
+    menu = Menu(*items)
     icon = pystray.Icon("snip-ai", make_icon_image(), "snip-ai", menu)
     if hasattr(icon, "run_detached"):
         icon.run_detached()

@@ -27,7 +27,7 @@ You only need to do this once.
 
 That’s it. The first launch installs snip-ai for you; later launches just start it.
 
-On **Windows**, look for the snip-ai icon in the notification area (near the clock). Right-click it for **Settings**, **Open at login**, and **Quit**. If you do not see it, click the `^` overflow arrow.
+On **Windows**, look for the snip-ai icon in the notification area (near the clock). Right-click it for **Last answers**, **Settings**, **Open at login**, and **Quit**. If you do not see it, click the `^` overflow arrow.
 
 A Gemini app / Gemini Pro subscription is not an API key. Create one at [Google AI Studio](https://aistudio.google.com/api-keys). OpenAI, Anthropic, OpenRouter, and a local [Ollama](https://ollama.com/) vision model also work — pick them in the same setup window.
 
@@ -52,8 +52,8 @@ Windows PowerShell: run `.\Start.bat` from this folder. To keep a debug console 
 
 1. Put a problem, error, or question on screen.
 2. Press **Ctrl+Shift+Space** (whole current monitor) or **Ctrl+Shift+.** (drag a snip).
-3. A tiny **Solving…** toast appears, then the answer.
-4. Paste if you want the full write-up — it is already on the clipboard.
+3. A tiny **Solving…** toast appears, then the answer. Click the toast for the full write-up.
+4. Paste if you want — it is also on the clipboard. Older answers: tray **Last answers** (keeps the last 10).
 
 Change your key or model anytime: tray **Settings**, or **Ctrl+Shift+/**.
 
@@ -93,4 +93,4 @@ You can also set `GEMINI_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY` in t
 
 ## Privacy
 
-Each capture is sent to whatever provider you configured. Screenshots are not saved unless you set `save_shots: true`. Logs go to the platform data dir (`%LOCALAPPDATA%\snip-ai` / `~/.local/share/snip-ai`).
+Each capture is sent to whatever provider you configured. Screenshots are not saved unless you set `save_shots: true`. The last 10 answers are stored on this computer (`%LOCALAPPDATA%\snip-ai\answers.json` / `~/.local/share/snip-ai/answers.json`). Logs go to the same data folder.

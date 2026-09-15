@@ -14,6 +14,7 @@ from snipai.capture import prepare_png, snapshot_current
 from snipai.clipboard import copy_text
 from snipai.config import Config, load_config
 from snipai.formatting import parse_solution, toast_body
+from snipai.history import AnswerHistory
 from snipai.hotkeys import start_hotkeys
 from snipai.solver import Solver, make_solver
 
@@ -23,7 +24,14 @@ log = logging.getLogger("snipai")
 class UserInterface(Protocol):
     def schedule(self, fn: Any) -> None: ...
 
-    def show_toast(self, title: str, body: str, *, duration_ms: int | None = None) -> None: ...
+    def show_toast(
+        self,
+        title: str,
+        body: str,
+        *,
+        duration_ms: int | None = None,
+        on_click: Any = None,
+    ) -> None: ...
 
     def mainloop(self) -> None: ...
 
@@ -38,14 +46,17 @@ class SnipApp:
         ui: UserInterface,
         *,
         config_path: Path | None = None,
+        history: AnswerHistory | None = None,
     ) -> None:
         self.config = config
         self.solver = solver
         self.ui = ui
         self.config_path = config_path
+        self.history = history or AnswerHistory()
         self._lock = threading.Lock()
         self._busy = False
         self._settings_open = False
+        self._history_win = None
 
     def capture_screen(self) -> None:
         self._start_job("screen")
@@ -56,13 +67,35 @@ class SnipApp:
     def solve_png(self, png: bytes, *, notify: bool = True) -> str:
         answer = self.solver.solve(png)
         headline, full = parse_solution(answer)
+        text = full or answer
+        entry = self.history.add(headline, text)
         if self.config.clipboard:
-            copy_text(full or answer)
+            copy_text(text)
         if notify:
             body = toast_body(answer, max_chars=self.config.notify.max_chars)
-            self._toast("Answer", body)
+            self._toast("Answer", body, on_click=lambda e=entry: self.open_history(e.id))
         log.info("Answer: %s", headline)
         return answer
+
+    def open_history(self, select_id: str | None = None) -> None:
+        self.ui.schedule(lambda: self._open_history_ui(select_id))
+
+    def _open_history_ui(self, select_id: str | None = None) -> None:
+        from snipai.history_ui import show_history_window
+
+        root = getattr(self.ui, "root", None)
+        if root is None:
+            return
+        try:
+            self._history_win = show_history_window(
+                self.history,
+                master=root,
+                select_id=select_id,
+                window=self._history_win,
+            )
+        except Exception as exc:
+            log.exception("History window failed")
+            self._toast("snip-ai", f"Could not open answers: {exc}", duration_ms=4000)
 
     def open_settings(self) -> None:
         """Hotkey and tray both land here; the dialog must run on the Tk thread."""
@@ -132,10 +165,18 @@ class SnipApp:
         finally:
             listener.stop()
 
-    def _toast(self, title: str, body: str, duration_ms: int | None = None) -> None:
+    def _toast(
+        self,
+        title: str,
+        body: str,
+        duration_ms: int | None = None,
+        on_click: Any = None,
+    ) -> None:
         # Bind values in default args so Python 3.13 cannot clear `exc` before the toast runs.
         self.ui.schedule(
-            lambda t=title, b=body, d=duration_ms: self.ui.show_toast(t, b, duration_ms=d)
+            lambda t=title, b=body, d=duration_ms, c=on_click: self.ui.show_toast(
+                t, b, duration_ms=d, on_click=c
+            )
         )
 
     def _start_job(self, mode: str) -> None:

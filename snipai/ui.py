@@ -94,7 +94,14 @@ class ToastUI:
         except tk.TclError:
             pass
 
-    def show_toast(self, title: str, body: str, *, duration_ms: int | None = None) -> None:
+    def show_toast(
+        self,
+        title: str,
+        body: str,
+        *,
+        duration_ms: int | None = None,
+        on_click: Callable[[], None] | None = None,
+    ) -> None:
         if not self.notify.enabled:
             log.info("%s: %s", title, body)
             return
@@ -140,17 +147,30 @@ class ToastUI:
             justify="left",
             anchor="w",
         ).pack(fill="x", pady=(4, 0))
+        hint = "Copied · click for full answer" if on_click else "click to dismiss"
         tk.Label(
             inner,
-            text="Copied · click to dismiss",
+            text=hint,
             bg=BG,
             fg=MUTED,
             font=("Segoe UI", 8) if sys.platform == "win32" else ("sans-serif", 8),
             anchor="w",
         ).pack(fill="x", pady=(6, 0))
 
-        for widget in (win, frame, inner):
-            widget.bind("<Button-1>", lambda _e: self._close_toast())
+        def handle(_event: object | None = None) -> None:
+            self._close_toast()
+            if on_click is not None:
+                try:
+                    on_click()
+                except Exception:
+                    log.exception("Toast click failed")
+
+        def bind_click(widget: tk.Misc) -> None:
+            widget.bind("<Button-1>", handle)
+            for child in widget.winfo_children():
+                bind_click(child)
+
+        bind_click(win)
 
         win.update_idletasks()
         self._place(win)

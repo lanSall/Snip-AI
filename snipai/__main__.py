@@ -19,6 +19,7 @@ from snipai.config import (
     user_data_dir,
     write_example_config,
 )
+from snipai.history import AnswerHistory
 from snipai.onboard import in_automated_run, load_ready_config, offer_setup, should_show_setup_gui
 from snipai.solver import make_solver
 
@@ -153,7 +154,9 @@ class _HeadlessUI:
     def schedule(self, fn) -> None:
         fn()
 
-    def show_toast(self, title: str, body: str, *, duration_ms: int | None = None) -> None:
+    def show_toast(
+        self, title: str, body: str, *, duration_ms: int | None = None, on_click=None
+    ) -> None:
         return None
 
     def destroy(self) -> None:
@@ -172,6 +175,7 @@ def _cmd_with_config(command: str, args: argparse.Namespace) -> int:
         return 1
     solver = make_solver(config)
     notify = not getattr(args, "no_notify", False)
+    history = _make_history()
 
     if command == "run":
         _require_tk()
@@ -179,7 +183,7 @@ def _cmd_with_config(command: str, args: argparse.Namespace) -> int:
         from snipai.tray import start_tray, tray_available
 
         ui = ToastUI(config.notify)
-        app = SnipApp(config, solver, ui, config_path=config_path)
+        app = SnipApp(config, solver, ui, config_path=config_path, history=history)
         print(
             f"snip-ai {__version__}  ·  {config.hotkey} current screen  ·  "
             f"{config.region_hotkey} region snip  ·  {config.settings_hotkey} settings",
@@ -207,7 +211,11 @@ def _cmd_with_config(command: str, args: argparse.Namespace) -> int:
                 else:
                     ui.destroy()
 
-            icon = start_tray(on_settings=app.open_settings, on_quit=on_quit)
+            icon = start_tray(
+                on_settings=app.open_settings,
+                on_history=app.open_history,
+                on_quit=on_quit,
+            )
         try:
             app.run_hotkeys()
         except KeyboardInterrupt:
@@ -225,7 +233,7 @@ def _cmd_with_config(command: str, args: argparse.Namespace) -> int:
         _require_tk()
         from snipai.ui import ToastUI, select_region
         ui = ToastUI(config.notify)
-        app = SnipApp(config, solver, ui)
+        app = SnipApp(config, solver, ui, history=history)
         mode = "region" if args.region or config.capture_mode == "region" else "screen"
         try:
             if mode == "region":
@@ -259,7 +267,7 @@ def _cmd_with_config(command: str, args: argparse.Namespace) -> int:
             ui = ToastUI(config.notify)
         else:
             ui = _HeadlessUI()
-        app = SnipApp(config, solver, ui)
+        app = SnipApp(config, solver, ui, history=history)
         try:
             answer = app.solve_png(png, notify=notify)
             print(answer)
@@ -271,6 +279,12 @@ def _cmd_with_config(command: str, args: argparse.Namespace) -> int:
         return 0
 
     raise SnipError(f"Unknown command: {command}")
+
+
+def _make_history() -> AnswerHistory:
+    if in_automated_run():
+        return AnswerHistory()
+    return AnswerHistory(user_data_dir() / "answers.json")
 
 
 def _setup_logging() -> None:

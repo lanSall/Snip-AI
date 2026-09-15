@@ -10,12 +10,16 @@ from snipai.__main__ import main
 class FakeUI:
     def __init__(self) -> None:
         self.toasts: list[tuple[str, str]] = []
+        self.last_on_click = None
 
     def schedule(self, fn) -> None:
         fn()
 
-    def show_toast(self, title: str, body: str, *, duration_ms: int | None = None) -> None:
+    def show_toast(
+        self, title: str, body: str, *, duration_ms: int | None = None, on_click=None
+    ) -> None:
         self.toasts.append((title, body))
+        self.last_on_click = on_click
 
 
 def test_app_solve_png_notifies_and_copies(tiny_png: bytes, monkeypatch):
@@ -27,12 +31,23 @@ def test_app_solve_png_notifies_and_copies(tiny_png: bytes, monkeypatch):
 
     monkeypatch.setattr("snipai.app.copy_text", fake_copy)
     ui = FakeUI()
-    app = SnipApp(Config(provider="mock", clipboard=True), MockSolver("ANSWER: 408\nWHY: 17×24."), ui)
+    from snipai.history import AnswerHistory
+
+    hist = AnswerHistory()
+    app = SnipApp(
+        Config(provider="mock", clipboard=True),
+        MockSolver("ANSWER: 408\nWHY: 17×24."),
+        ui,
+        history=hist,
+    )
     answer = app.solve_png(tiny_png, notify=True)
     assert "408" in answer
     assert ui.toasts[0][0] == "Answer"
     assert "408" in ui.toasts[0][1]
     assert "408" in copied["text"]
+    assert hist.entries[0].headline == "408"
+    assert "17×24" in hist.entries[0].full
+    assert callable(ui.last_on_click)
 
 
 def test_cli_solve_no_notify(math_problem_png: Path, tmp_path: Path, capsys, monkeypatch):
@@ -143,6 +158,13 @@ def test_open_settings_without_path_toasts():
     assert any("settings file" in body.lower() for _title, body in ui.toasts)
 
 
+def test_open_history_without_root_does_not_crash():
+    ui = FakeUI()
+    app = SnipApp(Config(provider="mock"), MockSolver(), ui)
+    app.open_history()
+    assert ui.toasts == []
+
+
 def test_run_hotkeys_binds_settings(monkeypatch):
     seen: dict[str, set[str]] = {}
 
@@ -175,7 +197,9 @@ def test_sniperror_toast_survives_except_block(monkeypatch):
         def schedule(self, fn) -> None:
             queued.append(fn)
 
-        def show_toast(self, title: str, body: str, *, duration_ms: int | None = None) -> None:
+        def show_toast(
+            self, title: str, body: str, *, duration_ms: int | None = None, on_click=None
+        ) -> None:
             self.seen = (title, body)
 
     ui = QueueUI()
