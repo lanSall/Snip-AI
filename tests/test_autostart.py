@@ -4,7 +4,7 @@ from snipai import autostart
 
 
 def test_autostart_writes_and_removes_windows_vbs(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(autostart.os, "name", "nt")
+    monkeypatch.setattr(autostart, "_windows", lambda: True)
     monkeypatch.setenv("APPDATA", str(tmp_path))
     fake_python = tmp_path / "python.exe"
     monkeypatch.setattr(autostart.sys, "executable", str(fake_python))
@@ -24,7 +24,7 @@ def test_autostart_writes_and_removes_windows_vbs(tmp_path: Path, monkeypatch):
 
 
 def test_autostart_linux_desktop(tmp_path: Path, monkeypatch):
-    monkeypatch.setattr(autostart.os, "name", "posix")
+    monkeypatch.setattr(autostart, "_windows", lambda: False)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     path = autostart.set_enabled(True)
     assert path == tmp_path / "autostart" / "snip-ai.desktop"

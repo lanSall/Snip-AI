@@ -11,13 +11,18 @@ def project_root() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+def _windows() -> bool:
+    return os.name == "nt"
+
+
 def is_enabled() -> bool:
     return autostart_path().is_file()
 
 
 def autostart_path() -> Path:
-    if os.name == "nt":
-        base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+    if _windows():
+        appdata = os.environ.get("APPDATA")
+        base = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
         return base / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / "snip-ai.vbs"
     xdg = os.environ.get("XDG_CONFIG_HOME")
     base = Path(xdg) if xdg else Path.home() / ".config"
@@ -43,7 +48,7 @@ def set_enabled(enabled: bool) -> Path | None:
 
 def _script_body() -> str:
     root = project_root()
-    if os.name == "nt":
+    if _windows():
         pythonw = Path(sys.executable)
         if pythonw.name.lower() == "python.exe":
             pythonw = pythonw.with_name("pythonw.exe")
