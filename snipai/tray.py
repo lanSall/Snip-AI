@@ -39,17 +39,25 @@ def start_tray(*, on_settings: Callable[[], None], on_quit: Callable[[], None]) 
 
     from snipai import autostart
 
-    def settings(icon: Any, item: Any) -> None:
-        on_settings()
+    def settings(_icon: Any, _item: Any) -> None:
+        log.info("Tray: Settings")
+        try:
+            on_settings()
+        except Exception:
+            log.exception("Tray Settings failed")
 
-    def quit_app(icon: Any, item: Any) -> None:
+    def quit_app(icon: Any, _item: Any) -> None:
+        log.info("Tray: Quit")
         try:
             icon.stop()
         except Exception:
             pass
-        on_quit()
+        try:
+            on_quit()
+        except Exception:
+            log.exception("Tray Quit failed")
 
-    def toggle_login(icon: Any, item: Any) -> None:
+    def toggle_login(icon: Any, _item: Any) -> None:
         try:
             autostart.set_enabled(not autostart.is_enabled())
         except OSError as exc:

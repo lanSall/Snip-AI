@@ -29,3 +29,14 @@ def test_toast_does_not_crash():
         assert ui._toast is None
     finally:
         ui.destroy()
+
+
+def test_schedule_runs_on_tk_pump():
+    ui = ToastUI(NotifyConfig(duration_ms=50))
+    try:
+        seen: list[str] = []
+        ui.schedule(lambda: seen.append("ok"))
+        ui._pump_jobs()
+        assert seen == ["ok"]
+    finally:
+        ui.destroy()

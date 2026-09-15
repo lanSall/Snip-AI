@@ -66,13 +66,17 @@ class SnipApp:
 
     def open_settings(self) -> None:
         """Hotkey and tray both land here; the dialog must run on the Tk thread."""
+        log.info("Settings requested")
         self.ui.schedule(self._open_settings_ui)
 
     def _open_settings_ui(self) -> None:
         from snipai.config import save_config
         from snipai.setup_ui import run_setup_wizard
 
-        if self._settings_open or self.config_path is None:
+        if self.config_path is None:
+            self._toast("snip-ai", "No settings file to edit.", duration_ms=3000)
+            return
+        if self._lift_open_settings():
             return
         self._settings_open = True
         try:
@@ -88,6 +92,28 @@ class SnipApp:
             self._toast("snip-ai", f"Settings failed: {exc}", duration_ms=4000)
         finally:
             self._settings_open = False
+
+    def _lift_open_settings(self) -> bool:
+        if not self._settings_open:
+            return False
+        root = getattr(self.ui, "root", None)
+        if root is None:
+            return True
+        try:
+            import tkinter as tk
+
+            for child in root.winfo_children():
+                try:
+                    if str(child.wm_title()) == "snip-ai settings":
+                        child.deiconify()
+                        child.lift()
+                        child.focus_force()
+                        return True
+                except tk.TclError:
+                    continue
+        except Exception:
+            log.debug("Could not raise existing settings window", exc_info=True)
+        return True
 
     def run_hotkeys(self) -> None:
         bindings = {

@@ -136,6 +136,13 @@ def test_open_settings_cancel_leaves_config(tmp_path: Path, monkeypatch):
     assert app.config.api_key == "AIza-keep"
 
 
+def test_open_settings_without_path_toasts():
+    ui = FakeUI()
+    app = SnipApp(Config(provider="mock"), MockSolver(), ui)
+    app.open_settings()
+    assert any("settings file" in body.lower() for _title, body in ui.toasts)
+
+
 def test_run_hotkeys_binds_settings(monkeypatch):
     seen: dict[str, set[str]] = {}
 

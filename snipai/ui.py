@@ -6,6 +6,7 @@ import logging
 import sys
 import tkinter as tk
 from collections.abc import Callable
+from queue import Empty, SimpleQueue
 from typing import Any
 
 from snipai.config import NotifyConfig
@@ -38,15 +39,33 @@ class ToastUI:
         self.root.title("snip-ai")
         self._toast: tk.Toplevel | None = None
         self._after_id: str | None = None
+        # Tray and hotkey threads must not call Tk directly (especially on Windows).
+        self._jobs: SimpleQueue[Callable[[], None]] = SimpleQueue()
+        self.root.after(25, self._pump_jobs)
 
     def schedule(self, fn: Callable[[], None]) -> None:
-        self.root.after(0, fn)
+        self._jobs.put(fn)
+
+    def _pump_jobs(self) -> None:
+        try:
+            self.root.after(25, self._pump_jobs)
+        except tk.TclError:
+            return
+        while True:
+            try:
+                fn = self._jobs.get_nowait()
+            except Empty:
+                break
+            try:
+                fn()
+            except Exception:
+                log.exception("UI callback failed")
 
     def mainloop(self) -> None:
         self.root.mainloop()
 
     def quit(self) -> None:
-        self.root.after(0, self.root.quit)
+        self.schedule(self.root.quit)
 
     def destroy(self) -> None:
         try:
