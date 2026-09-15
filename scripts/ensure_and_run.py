@@ -28,11 +28,17 @@ def _ok(python: Path) -> bool:
     return result.returncode == 0
 
 
+def _install(python: Path) -> None:
+    subprocess.check_call(
+        [str(python), "-m", "pip", "install", "-e", str(ROOT), "-q"],
+        cwd=str(ROOT),
+    )
+
+
 def _create_venv() -> None:
     print("First launch: installing snip-ai (this takes a minute)…", flush=True)
     subprocess.check_call([sys.executable, "-m", "venv", str(VENV)])
-    python = _venv_python()
-    subprocess.check_call([str(python), "-m", "pip", "install", "-e", str(ROOT)], cwd=str(ROOT))
+    _install(_venv_python())
 
 
 def _tk_hint() -> str | None:
@@ -50,7 +56,7 @@ def _tk_hint() -> str | None:
 def main() -> int:
     os.chdir(ROOT)
     python = _venv_python()
-    if not _ok(python):
+    if not python.is_file() or not _ok(python):
         try:
             _create_venv()
         except subprocess.CalledProcessError as exc:
@@ -60,6 +66,18 @@ def main() -> int:
                 print("On Ubuntu/Debian:  sudo apt install python3 python3-venv python3-dev python3-tk", file=sys.stderr)
             return exc.returncode or 1
         python = _venv_python()
+    else:
+        # Reinstall from this folder so `git pull` actually updates the running app.
+        try:
+            _install(python)
+        except subprocess.CalledProcessError as exc:
+            print(f"Could not update snip-ai (exit {exc.returncode}). Trying a clean install…", file=sys.stderr)
+            try:
+                _create_venv()
+            except subprocess.CalledProcessError as recreate:
+                print(f"Could not install snip-ai (exit {recreate.returncode}).", file=sys.stderr)
+                return recreate.returncode or exc.returncode or 1
+            python = _venv_python()
 
     hint = _tk_hint()
     if hint:

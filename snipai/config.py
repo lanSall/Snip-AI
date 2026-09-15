@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from dataclasses import asdict, dataclass, field
@@ -313,6 +314,12 @@ def load_config(path: Path | None = None) -> Config:
     file_model = str(loaded.get("model", "")).strip()
     config = prepare_config(from_dict(loaded))
     if file_model and file_model != config.model and should_replace_gemini_model(file_model):
+        print(
+            f"snip-ai: Gemini model {file_model} is not available to new keys; "
+            f"switched to {config.model} and saved that in {config_path}.",
+            flush=True,
+        )
+        logging.getLogger("snipai").info("Updated Gemini model %s -> %s", file_model, config.model)
         save_config(config, config_path)
     return config
 
