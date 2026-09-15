@@ -37,6 +37,51 @@ def test_schedule_runs_on_tk_pump():
         seen: list[str] = []
         ui.schedule(lambda: seen.append("ok"))
         ui._pump_jobs()
+        ui.root.update()
         assert seen == ["ok"]
+    finally:
+        ui.destroy()
+
+
+def test_select_region_escape_cancels():
+    from PIL import Image
+
+    from snipai.ui import select_region
+
+    ui = ToastUI(NotifyConfig(duration_ms=50))
+    image = Image.new("RGB", (320, 200), color=(30, 30, 30))
+    seen: dict[str, object] = {}
+
+    def start() -> None:
+        def hit_escape() -> None:
+            overlay = ui._snip_overlay
+            if overlay is not None:
+                overlay.event_generate("<Escape>")
+            else:
+                ui.cancel_snip()
+
+        ui.root.after(200, hit_escape)
+        seen["crop"] = select_region(ui, image, 0, 0)
+        ui.root.quit()
+
+    try:
+        ui.root.after(20, start)
+        ui.root.mainloop()
+        assert seen.get("crop") is None
+        assert getattr(ui, "_snip_overlay", None) is None
+    finally:
+        ui.destroy()
+
+
+def test_cancel_snip_closes_overlay():
+    import tkinter as tk
+
+    ui = ToastUI(NotifyConfig(duration_ms=50))
+    try:
+        overlay = tk.Toplevel(ui.root)
+        ui._snip_overlay = overlay
+        ui.cancel_snip()
+        ui.root.update()
+        assert ui._snip_overlay is None
     finally:
         ui.destroy()

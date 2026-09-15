@@ -41,6 +41,7 @@ class ToastUI:
         self._after_id: str | None = None
         # Tray and hotkey threads must not call Tk directly (especially on Windows).
         self._jobs: SimpleQueue[Callable[[], None]] = SimpleQueue()
+        self._snip_overlay: tk.Toplevel | None = None
         self.root.after(25, self._pump_jobs)
 
     def schedule(self, fn: Callable[[], None]) -> None:
@@ -51,15 +52,35 @@ class ToastUI:
             self.root.after(25, self._pump_jobs)
         except tk.TclError:
             return
+        # Run jobs idle so wait_window (snip overlay / settings) is not nested
+        # inside this repeating timer.
         while True:
             try:
                 fn = self._jobs.get_nowait()
             except Empty:
                 break
+
+            def _run(job: Callable[[], None] = fn) -> None:
+                try:
+                    job()
+                except Exception:
+                    log.exception("UI callback failed")
+
             try:
-                fn()
-            except Exception:
-                log.exception("UI callback failed")
+                self.root.after_idle(_run)
+            except tk.TclError:
+                break
+
+    def cancel_snip(self) -> None:
+        """Close a stuck region-snip overlay (timeout or a second cancel)."""
+        top = getattr(self, "_snip_overlay", None)
+        if top is None:
+            return
+        try:
+            top.destroy()
+        except tk.TclError:
+            pass
+        self._snip_overlay = None
 
     def mainloop(self) -> None:
         self.root.mainloop()
@@ -207,12 +228,39 @@ def configure_dpi() -> None:
             pass
 
 
+def _force_activate(win: tk.Misc) -> None:
+    """Give keyboard focus to an overrideredirect window (Windows otherwise ignores Esc)."""
+    try:
+        win.lift()
+        win.focus_force()
+    except tk.TclError:
+        pass
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        hwnd = int(win.winfo_id())
+        user32 = ctypes.windll.user32
+        parent = user32.GetParent(hwnd)
+        if parent:
+            hwnd = parent
+        user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+        user32.SetFocus(hwnd)
+    except Exception as exc:
+        log.debug("Could not focus snip overlay: %s", exc)
+
+
 def select_region(ui: ToastUI, image: Any, monitor_left: int, monitor_top: int):
     """Interactive rectangle snip. Returns a cropped PIL image or None."""
     from PIL import ImageTk
 
     result: dict[str, Any] = {"image": None}
+    closed = {"done": False}
     top = tk.Toplevel(ui.root)
+    ui._snip_overlay = top
     top.overrideredirect(True)
     try:
         top.attributes("-topmost", True)
@@ -227,15 +275,27 @@ def select_region(ui: ToastUI, image: Any, monitor_left: int, monitor_top: int):
     canvas.create_image(0, 0, anchor="nw", image=photo)
     canvas.image = photo  # prevent GC
 
-    hint = canvas.create_text(
-        width // 2,
-        28,
-        text="Drag to snip · Esc to cancel",
-        fill="#f3f4f6",
-        font=("sans-serif", 14, "bold"),
-    )
     rect_id = canvas.create_rectangle(0, 0, 0, 0, outline=ACCENT, width=2)
     start = {"x": 0, "y": 0, "dragging": False}
+
+    def finish(crop: Any) -> None:
+        if closed["done"]:
+            return
+        closed["done"] = True
+        result["image"] = crop
+        ui._snip_overlay = None
+        try:
+            ui.root.unbind_all("<Escape>")
+        except tk.TclError:
+            pass
+        try:
+            top.grab_release()
+        except tk.TclError:
+            pass
+        try:
+            top.destroy()
+        except tk.TclError:
+            pass
 
     def on_press(event: tk.Event) -> None:
         start["x"] = event.x
@@ -248,13 +308,10 @@ def select_region(ui: ToastUI, image: Any, monitor_left: int, monitor_top: int):
             return
         canvas.coords(rect_id, start["x"], start["y"], event.x, event.y)
 
-    def finish(crop: Any) -> None:
-        result["image"] = crop
-        top.destroy()
-
     def on_release(event: tk.Event) -> None:
         if not start["dragging"]:
             return
+        start["dragging"] = False
         x0, x1 = sorted((start["x"], event.x))
         y0, y1 = sorted((start["y"], event.y))
         if x1 - x0 < 8 or y1 - y0 < 8:
@@ -262,15 +319,49 @@ def select_region(ui: ToastUI, image: Any, monitor_left: int, monitor_top: int):
             return
         finish(image.crop((x0, y0, x1, y1)))
 
-    def on_escape(_event: tk.Event | None = None) -> None:
+    def on_escape(_event: tk.Event | None = None) -> str:
         finish(None)
+        return "break"
+
+    font = ("Segoe UI", 11) if sys.platform == "win32" else ("sans-serif", 11)
+    bar = tk.Frame(top, bg=BG, padx=14, pady=8)
+    bar.place(relx=0.5, y=16, anchor="n")
+    tk.Label(bar, text="Drag a rectangle", bg=BG, fg=FG, font=font).pack(side="left", padx=(0, 12))
+    tk.Button(
+        bar,
+        text="Cancel",
+        command=lambda: finish(None),
+        bg=BORDER,
+        fg=FG,
+        activebackground="#3a404a",
+        activeforeground=FG,
+        highlightthickness=0,
+        bd=0,
+        relief="flat",
+        font=font,
+        padx=12,
+        pady=4,
+        cursor="hand2",
+    ).pack(side="left")
 
     canvas.bind("<ButtonPress-1>", on_press)
     canvas.bind("<B1-Motion>", on_move)
     canvas.bind("<ButtonRelease-1>", on_release)
-    top.bind("<Escape>", on_escape)
     canvas.bind("<ButtonPress-3>", on_escape)
-    top.focus_force()
+    top.bind("<Escape>", on_escape)
+    canvas.bind("<Escape>", on_escape)
+    bar.bind("<Escape>", on_escape)
+    try:
+        ui.root.bind_all("<Escape>", on_escape)
+    except tk.TclError:
+        pass
+    try:
+        top.grab_set()
+    except tk.TclError:
+        pass
+    top.update_idletasks()
+    _force_activate(top)
+    canvas.focus_set()
     ui.root.wait_window(top)
-    _ = hint
+    finish(result["image"])
     return result["image"]

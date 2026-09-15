@@ -182,7 +182,14 @@ class SnipApp:
                     done.set()
 
             self.ui.schedule(pick)
-            done.wait(timeout=120)
+            finished = done.wait(timeout=120)
+            if not finished:
+                cancel = getattr(self.ui, "cancel_snip", None)
+                if callable(cancel):
+                    self.ui.schedule(cancel)
+                done.wait(timeout=5)
+                log.warning("Region snip timed out")
+                return None
             cropped = selected["image"]
             if cropped is None:
                 return None
