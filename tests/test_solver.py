@@ -103,6 +103,7 @@ def test_gemini_solver_uses_google_openai_url(tiny_png: bytes):
     def handler(request: httpx.Request) -> httpx.Response:
         captured["url"] = str(request.url)
         captured["auth"] = request.headers.get("authorization")
+        captured["body"] = request.read()
         return httpx.Response(200, json={"choices": [{"message": {"content": "ANSWER: 1"}}]})
 
     solver = make_solver(
@@ -113,3 +114,23 @@ def test_gemini_solver_uses_google_openai_url(tiny_png: bytes):
     assert "generativelanguage.googleapis.com" in captured["url"]
     assert captured["url"].rstrip("/").endswith("chat/completions")
     assert captured["auth"] == "Bearer AIza-test"
+    assert b"thinking_level" in captured["body"]
+
+
+def test_timeout_retries_then_explains(tiny_png: bytes):
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        raise httpx.ReadTimeout("The read operation timed out")
+
+    solver = OpenAICompatibleSolver(
+        Config(provider="openai", api_key="sk-test", model="gpt-4o"),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    try:
+        solver.solve(tiny_png)
+        assert False, "expected SnipError"
+    except SnipError as exc:
+        assert "too long" in str(exc).lower()
+    assert calls["n"] == 2
