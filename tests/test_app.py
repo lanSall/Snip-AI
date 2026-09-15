@@ -188,6 +188,61 @@ def test_run_hotkeys_binds_settings(monkeypatch):
     assert "ctrl+shift+space" in seen["keys"]
     assert "ctrl+shift+period" in seen["keys"]
     assert "ctrl+shift+slash" in seen["keys"]
+    assert "ctrl+shift+a" in seen["keys"]
+
+
+def test_open_ask_without_root_does_not_crash():
+    ui = FakeUI()
+    app = SnipApp(Config(provider="mock"), MockSolver(), ui)
+    app.open_ask()
+    assert ui.toasts == []
+
+
+def test_app_solve_question_notifies_and_copies(monkeypatch):
+    copied = {}
+
+    def fake_copy(text: str) -> bool:
+        copied["text"] = text
+        return True
+
+    monkeypatch.setattr("snipai.app.copy_text", fake_copy)
+    ui = FakeUI()
+    from snipai.history import AnswerHistory
+
+    hist = AnswerHistory()
+    app = SnipApp(
+        Config(provider="mock", clipboard=True),
+        MockSolver("ANSWER: 4\nWHY: 2+2."),
+        ui,
+        history=hist,
+    )
+    answer = app.solve_question("What is 2+2?", notify=True)
+    assert "4" in answer
+    assert ui.toasts[0][0] == "Answer"
+    assert "4" in copied["text"]
+    assert hist.entries[0].headline == "4"
+
+
+def test_ask_job_sniperror_toast(monkeypatch):
+    queued = []
+
+    class QueueUI:
+        def schedule(self, fn) -> None:
+            queued.append(fn)
+
+        def show_toast(
+            self, title: str, body: str, *, duration_ms: int | None = None, on_click=None
+        ) -> None:
+            self.seen = (title, body)
+
+    ui = QueueUI()
+    app = SnipApp(Config(provider="mock", clipboard=False), MockSolver(), ui)
+    app._ask_job("   ")
+    assert queued, "toast callback should be queued"
+    for fn in queued:
+        fn()
+    assert ui.seen[0] == "snip-ai"
+    assert "Type a question" in ui.seen[1]
 
 
 def test_sniperror_toast_survives_except_block(monkeypatch):

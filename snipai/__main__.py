@@ -186,7 +186,8 @@ def _cmd_with_config(command: str, args: argparse.Namespace) -> int:
         app = SnipApp(config, solver, ui, config_path=config_path, history=history)
         print(
             f"snip-ai {__version__}  ·  {config.hotkey} current screen  ·  "
-            f"{config.region_hotkey} region snip  ·  {config.settings_hotkey} settings",
+            f"{config.region_hotkey} region snip  ·  {config.ask_hotkey} ask  ·  "
+            f"{config.settings_hotkey} settings",
             flush=True,
         )
         exists = config_path.is_file()
@@ -214,6 +215,7 @@ def _cmd_with_config(command: str, args: argparse.Namespace) -> int:
             icon = start_tray(
                 on_settings=app.open_settings,
                 on_history=app.open_history,
+                on_ask=app.open_ask,
                 on_quit=on_quit,
             )
         try:

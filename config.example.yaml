@@ -10,6 +10,7 @@ base_url: ""              # leave empty for Gemini; optional override for other 
 # Global hotkeys. Use ctrl, alt, shift, cmd (Windows key / Command).
 hotkey: ctrl+shift+space          # capture the monitor under the cursor
 region_hotkey: ctrl+shift+period  # drag a rectangle, then solve that snip
+ask_hotkey: ctrl+shift+a          # type a question (no screenshot)
 settings_hotkey: ctrl+shift+slash # open Settings (key and model)
 capture_mode: screen              # screen | region  (used by `snip-ai once`)
 

@@ -162,6 +162,7 @@ class Config:
     hotkey: str = "ctrl+shift+space"
     region_hotkey: str = "ctrl+shift+period"
     settings_hotkey: str = "ctrl+shift+slash"
+    ask_hotkey: str = "ctrl+shift+a"
     capture_mode: str = "screen"
     clipboard: bool = True
     save_shots: bool = False
@@ -243,6 +244,7 @@ def from_dict(raw: dict[str, Any] | None) -> Config:
         hotkey=hotkey,
         region_hotkey=str(data.get("region_hotkey", defaults.region_hotkey)),
         settings_hotkey=str(data.get("settings_hotkey", defaults.settings_hotkey)),
+        ask_hotkey=str(data.get("ask_hotkey", defaults.ask_hotkey)),
         capture_mode=str(data.get("capture_mode", defaults.capture_mode)),
         clipboard=bool(data.get("clipboard", defaults.clipboard)),
         save_shots=bool(data.get("save_shots", defaults.save_shots)),
@@ -379,6 +381,7 @@ base_url: ""              # optional override, e.g. http://127.0.0.1:11434/v1
 # Global hotkeys. Use ctrl, alt, shift, cmd (Windows key / Command).
 hotkey: ctrl+shift+space          # capture the monitor under the cursor
 region_hotkey: ctrl+shift+period  # drag a rectangle, then solve that snip
+ask_hotkey: ctrl+shift+a          # type a question (no screenshot)
 settings_hotkey: ctrl+shift+slash # open Settings (key and model)
 capture_mode: screen              # screen | region  (used by `snip-ai once`)
 
@@ -425,6 +428,7 @@ def save_config(config: Config, path: Path | None = None) -> Path:
         "hotkey": config.hotkey,
         "region_hotkey": config.region_hotkey,
         "settings_hotkey": config.settings_hotkey,
+        "ask_hotkey": config.ask_hotkey,
         "capture_mode": config.capture_mode,
         "clipboard": config.clipboard,
         "save_shots": config.save_shots,

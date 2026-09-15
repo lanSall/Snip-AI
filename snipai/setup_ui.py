@@ -265,7 +265,7 @@ def run_setup_wizard(
     tk.Label(
         frame,
         text="Ctrl+Shift+Space  screen    ·    Ctrl+Shift+Period  snip\n"
-        "Ctrl+Shift+/  open this window again",
+        "Ctrl+Shift+A  type a question    ·    Ctrl+Shift+/  settings",
         bg=BG,
         fg=MUTED,
         font=_FONT_SMALL,

@@ -1,4 +1,4 @@
-"""Send a screenshot to a vision model and return the solution text."""
+"""Send a screenshot or typed question to a model and return the solution text."""
 
 from __future__ import annotations
 
@@ -15,9 +15,21 @@ USER_PROMPT = (
     "Put ANSWER on the first line and WHY on the second."
 )
 
+ASK_SYSTEM = """You are a concise problem-solver.
+
+The user typed a question. Solve it. Be correct and concise.
+
+Format your reply EXACTLY like this:
+ANSWER: <the final answer, as short as possible>
+WHY: <one or two sentences>
+
+Do not use markdown."""
+
 
 class Solver(Protocol):
     def solve(self, png: bytes) -> str: ...
+
+    def ask(self, question: str) -> str: ...
 
 
 def _b64(png: bytes) -> str:
@@ -26,6 +38,13 @@ def _b64(png: bytes) -> str:
 
 def _data_url(png: bytes) -> str:
     return f"data:image/png;base64,{_b64(png)}"
+
+
+def _require_question(question: str) -> str:
+    text = (question or "").strip()
+    if not text:
+        raise SnipError("Type a question first.")
+    return text
 
 
 class MockSolver:
@@ -39,6 +58,10 @@ class MockSolver:
             raise SnipError("Screenshot was empty.")
         return self.reply
 
+    def ask(self, question: str) -> str:
+        _require_question(question)
+        return self.reply
+
 
 class OpenAICompatibleSolver:
     def __init__(self, config: Config, client: httpx.Client | None = None) -> None:
@@ -46,6 +69,20 @@ class OpenAICompatibleSolver:
         self.client = client
 
     def solve(self, png: bytes) -> str:
+        user = [
+            {"type": "text", "text": USER_PROMPT},
+            {
+                "type": "image_url",
+                "image_url": {"url": _data_url(png)},
+            },
+        ]
+        return self._chat(self.config.system_prompt, user)
+
+    def ask(self, question: str) -> str:
+        text = _require_question(question)
+        return self._chat(ASK_SYSTEM, [{"type": "text", "text": text}])
+
+    def _chat(self, system: str, user_content: list) -> str:
         key = self.config.resolved_api_key()
         if not key:
             raise SnipError(
@@ -64,16 +101,10 @@ class OpenAICompatibleSolver:
             "model": self.config.model,
             "max_tokens": 400,
             "messages": [
-                {"role": "system", "content": self.config.system_prompt},
+                {"role": "system", "content": system},
                 {
                     "role": "user",
-                    "content": [
-                        {"type": "text", "text": USER_PROMPT},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": _data_url(png)},
-                        },
-                    ],
+                    "content": user_content,
                 },
             ],
         }
@@ -98,6 +129,24 @@ class AnthropicSolver:
         self.client = client
 
     def solve(self, png: bytes) -> str:
+        user = [
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": _b64(png),
+                },
+            },
+            {"type": "text", "text": USER_PROMPT},
+        ]
+        return self._chat(self.config.system_prompt, user)
+
+    def ask(self, question: str) -> str:
+        text = _require_question(question)
+        return self._chat(ASK_SYSTEM, [{"type": "text", "text": text}])
+
+    def _chat(self, system: str, user_content: list) -> str:
         key = self.config.resolved_api_key()
         if not key:
             raise SnipError(
@@ -113,21 +162,11 @@ class AnthropicSolver:
         payload = {
             "model": self.config.model,
             "max_tokens": 400,
-            "system": self.config.system_prompt,
+            "system": system,
             "messages": [
                 {
                     "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/png",
-                                "data": _b64(png),
-                            },
-                        },
-                        {"type": "text", "text": USER_PROMPT},
-                    ],
+                    "content": user_content,
                 }
             ],
         }
@@ -149,17 +188,23 @@ class OllamaSolver:
         self.client = client
 
     def solve(self, png: bytes) -> str:
+        return self._chat(self.config.system_prompt, USER_PROMPT, images=[_b64(png)])
+
+    def ask(self, question: str) -> str:
+        text = _require_question(question)
+        return self._chat(ASK_SYSTEM, text)
+
+    def _chat(self, system: str, user_content: str, images: list[str] | None = None) -> str:
         url = f"{self.config.resolved_base_url()}/api/chat"
+        message: dict = {"role": "user", "content": user_content}
+        if images:
+            message["images"] = images
         payload = {
             "model": self.config.model,
             "stream": False,
             "messages": [
-                {"role": "system", "content": self.config.system_prompt},
-                {
-                    "role": "user",
-                    "content": USER_PROMPT,
-                    "images": [_b64(png)],
-                },
+                {"role": "system", "content": system},
+                message,
             ],
         }
         response = _post(self.client, url, headers={"Content-Type": "application/json"}, json=payload)

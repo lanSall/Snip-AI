@@ -23,6 +23,7 @@ def test_defaults():
     assert config.model == DEFAULT_GEMINI_MODEL
     assert config.hotkey == "ctrl+shift+space"
     assert config.settings_hotkey == "ctrl+shift+slash"
+    assert config.ask_hotkey == "ctrl+shift+a"
     assert config.notify.position == "bottom-right"
     assert config.notify.sound is False
 
@@ -148,9 +149,11 @@ def test_save_config_roundtrip(tmp_path: Path, monkeypatch):
     assert loaded.provider == "gemini"
     assert loaded.model == "gemini-3.8-flash"
     assert loaded.settings_hotkey == "ctrl+shift+slash"
+    assert loaded.ask_hotkey == "ctrl+shift+a"
     text = path.read_text(encoding="utf-8")
     assert "api_key:" in text
     assert "settings_hotkey:" in text
+    assert "ask_hotkey:" in text
 
 
 def test_example_files_do_not_contain_live_keys():

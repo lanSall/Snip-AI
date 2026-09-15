@@ -37,12 +37,21 @@ def start_tray(
     on_settings: Callable[[], None],
     on_quit: Callable[[], None],
     on_history: Callable[[], None] | None = None,
+    on_ask: Callable[[], None] | None = None,
 ) -> Any:
     """Run the tray icon in a background thread. Returns the icon (call ``stop()``)."""
     import pystray
     from pystray import Menu, MenuItem
 
     from snipai import autostart
+
+    def ask(_icon: Any, _item: Any) -> None:
+        log.info("Tray: Ask")
+        try:
+            if on_ask:
+                on_ask()
+        except Exception:
+            log.exception("Tray Ask failed")
 
     def history(_icon: Any, _item: Any) -> None:
         log.info("Tray: Last answers")
@@ -81,6 +90,8 @@ def start_tray(
             pass
 
     items = []
+    if on_ask is not None:
+        items.append(MenuItem("Ask a question", ask))
     if on_history is not None:
         items.append(MenuItem("Last answers", history))
     items.extend(

@@ -20,6 +20,7 @@ ACCENT = "#6ee7b7"
 BORDER = "#2e323a"
 PAD = 16
 TOAST_WIDTH = 320
+ASK_WIDTH = 360
 
 _POSITIONS = {
     "bottom-right": ("e", "s"),
@@ -195,6 +196,18 @@ class ToastUI:
         y = PAD if y_anchor == "n" else screen_h - height - PAD
         win.geometry(f"{width}x{height}+{x}+{y}")
 
+    def _place_ask(self, win: tk.Toplevel) -> None:
+        """Same corner as toasts, a bit wider so typing is comfortable."""
+        screen_w = win.winfo_screenwidth()
+        screen_h = win.winfo_screenheight()
+        win.update_idletasks()
+        width = max(win.winfo_reqwidth(), ASK_WIDTH)
+        height = max(win.winfo_reqheight(), 150)
+        x_anchor, y_anchor = _POSITIONS.get(self.notify.position, _POSITIONS["bottom-right"])
+        x = PAD if x_anchor == "w" else screen_w - width - PAD
+        y = PAD if y_anchor == "n" else screen_h - height - PAD
+        win.geometry(f"{width}x{height}+{x}+{y}")
+
     def _close_toast(self) -> None:
         if self._after_id is not None:
             try:
@@ -271,6 +284,164 @@ def _force_activate(win: tk.Misc) -> None:
         user32.SetFocus(hwnd)
     except Exception as exc:
         log.debug("Could not focus snip overlay: %s", exc)
+
+
+def show_ask_window(
+    ui: ToastUI,
+    on_submit: Callable[[str], None],
+    window: tk.Toplevel | None = None,
+) -> tk.Toplevel:
+    """Small toast-styled window to type a question. Steals focus (unlike toasts)."""
+    if window is not None:
+        try:
+            if window.winfo_exists():
+                _force_activate(window)
+                entry = getattr(window, "_entry", None)
+                if entry is not None:
+                    try:
+                        entry.focus_set()
+                    except tk.TclError:
+                        pass
+                return window
+        except tk.TclError:
+            pass
+
+    ui._close_toast()
+    if sys.platform == "win32":
+        try:
+            ui.root.deiconify()
+            ui.root.withdraw()
+        except tk.TclError:
+            pass
+
+    win = tk.Toplevel(ui.root)
+    win.withdraw()
+    win.overrideredirect(True)
+    try:
+        win.attributes("-topmost", True)
+    except tk.TclError:
+        pass
+    try:
+        win.attributes("-type", "dialog")
+    except tk.TclError:
+        pass
+    try:
+        win.attributes("-alpha", 0.98)
+    except tk.TclError:
+        pass
+
+    font = ("Segoe UI", 10) if sys.platform == "win32" else ("sans-serif", 10)
+    font_bold = ("Segoe UI", 9, "bold") if sys.platform == "win32" else ("sans-serif", 9, "bold")
+    font_small = ("Segoe UI", 8) if sys.platform == "win32" else ("sans-serif", 8)
+
+    frame = tk.Frame(win, bg=BORDER, padx=1, pady=1)
+    frame.pack(fill="both", expand=True)
+    inner = tk.Frame(frame, bg=BG, padx=12, pady=10)
+    inner.pack(fill="both", expand=True)
+
+    tk.Label(inner, text="Ask", bg=BG, fg=ACCENT, font=font_bold, anchor="w").pack(fill="x")
+    hint_var = tk.StringVar(value="Type a question · Enter to ask · Esc to close")
+    tk.Label(
+        inner,
+        textvariable=hint_var,
+        bg=BG,
+        fg=MUTED,
+        font=font_small,
+        anchor="w",
+    ).pack(fill="x", pady=(2, 6))
+
+    text = tk.Text(
+        inner,
+        height=4,
+        width=36,
+        wrap="word",
+        bg="#111316",
+        fg=FG,
+        insertbackground=FG,
+        relief="flat",
+        highlightthickness=1,
+        highlightbackground=BORDER,
+        highlightcolor=ACCENT,
+        font=font,
+        padx=8,
+        pady=6,
+    )
+    text.pack(fill="both", expand=True)
+
+    closed = {"done": False}
+
+    def finish(question: str | None) -> None:
+        if closed["done"]:
+            return
+        closed["done"] = True
+        try:
+            win.destroy()
+        except tk.TclError:
+            pass
+        if question is not None:
+            on_submit(question)
+
+    def submit(_event: object | None = None) -> str:
+        question = text.get("1.0", "end").strip()
+        if not question:
+            hint_var.set("Type a question first.")
+            return "break"
+        finish(question)
+        return "break"
+
+    def cancel(_event: object | None = None) -> str:
+        finish(None)
+        return "break"
+
+    def on_return(event: tk.Event) -> str | None:
+        # Shift+Enter inserts a newline; Enter asks.
+        if int(getattr(event, "state", 0)) & 0x0001:
+            return None
+        return submit()
+
+    buttons = tk.Frame(inner, bg=BG)
+    buttons.pack(fill="x", pady=(8, 0))
+    tk.Button(
+        buttons,
+        text="Ask",
+        command=submit,
+        bg=ACCENT,
+        fg="#052e1a",
+        activebackground="#34d399",
+        activeforeground="#052e1a",
+        highlightthickness=0,
+        bd=0,
+        relief="flat",
+        font=font,
+        padx=12,
+        pady=4,
+        cursor="hand2",
+    ).pack(side="right")
+
+    win.bind("<Escape>", cancel)
+    text.bind("<Escape>", cancel)
+    text.bind("<Return>", on_return)
+    text.bind("<Control-Return>", submit)
+    win.protocol("WM_DELETE_WINDOW", cancel)
+
+    win._entry = text  # type: ignore[attr-defined]
+    win._submit = submit  # type: ignore[attr-defined]
+    win._cancel = cancel  # type: ignore[attr-defined]
+
+    win.update_idletasks()
+    ui._place_ask(win)
+    win.deiconify()
+    win.lift()
+    try:
+        win.attributes("-topmost", True)
+    except tk.TclError:
+        pass
+    _force_activate(win)
+    try:
+        text.focus_set()
+    except tk.TclError:
+        pass
+    return win
 
 
 def select_region(ui: ToastUI, image: Any, monitor_left: int, monitor_top: int):

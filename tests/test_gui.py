@@ -101,3 +101,66 @@ def test_cancel_snip_closes_overlay():
         assert ui._snip_overlay is None
     finally:
         ui.destroy()
+
+
+def test_ask_window_submits_text():
+    from snipai.ui import show_ask_window
+
+    ui = ToastUI(NotifyConfig(duration_ms=50))
+    seen: dict[str, str] = {}
+
+    def on_submit(question: str) -> None:
+        seen["q"] = question
+
+    try:
+        win = show_ask_window(ui, on_submit)
+        ui.root.update()
+        win._entry.insert("1.0", "What is 2+2?")
+        win._submit()
+        ui.root.update()
+        assert seen.get("q") == "What is 2+2?"
+        assert not win.winfo_exists()
+    finally:
+        ui.destroy()
+
+
+def test_ask_window_escape_cancels():
+    from snipai.ui import show_ask_window
+
+    ui = ToastUI(NotifyConfig(duration_ms=50))
+    seen: dict[str, str] = {}
+
+    def on_submit(question: str) -> None:
+        seen["q"] = question
+
+    try:
+        win = show_ask_window(ui, on_submit)
+        ui.root.update()
+        win._entry.insert("1.0", "should not send")
+        win._cancel()
+        ui.root.update()
+        assert "q" not in seen
+        assert not win.winfo_exists()
+    finally:
+        ui.destroy()
+
+
+def test_ask_window_empty_stays_open():
+    from snipai.ui import show_ask_window
+
+    ui = ToastUI(NotifyConfig(duration_ms=50))
+    seen: dict[str, str] = {}
+
+    def on_submit(question: str) -> None:
+        seen["q"] = question
+
+    try:
+        win = show_ask_window(ui, on_submit)
+        ui.root.update()
+        win._submit()
+        ui.root.update()
+        assert "q" not in seen
+        assert win.winfo_exists()
+        win._cancel()
+    finally:
+        ui.destroy()

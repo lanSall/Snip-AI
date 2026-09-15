@@ -57,6 +57,7 @@ class SnipApp:
         self._busy = False
         self._settings_open = False
         self._history_win = None
+        self._ask_win = None
 
     def capture_screen(self) -> None:
         self._start_job("screen")
@@ -65,7 +66,12 @@ class SnipApp:
         self._start_job("region")
 
     def solve_png(self, png: bytes, *, notify: bool = True) -> str:
-        answer = self.solver.solve(png)
+        return self._deliver(self.solver.solve(png), notify=notify)
+
+    def solve_question(self, question: str, *, notify: bool = True) -> str:
+        return self._deliver(self.solver.ask(question), notify=notify)
+
+    def _deliver(self, answer: str, *, notify: bool) -> str:
         headline, full = parse_solution(answer)
         text = full or answer
         entry = self.history.add(headline, text)
@@ -96,6 +102,31 @@ class SnipApp:
         except Exception as exc:
             log.exception("History window failed")
             self._toast("snip-ai", f"Could not open answers: {exc}", duration_ms=4000)
+
+    def open_ask(self) -> None:
+        """Hotkey and tray: small toast-like window to type a question."""
+        log.info("Ask requested")
+        self.ui.schedule(self._open_ask_ui)
+
+    def _open_ask_ui(self) -> None:
+        from snipai.ui import show_ask_window
+
+        root = getattr(self.ui, "root", None)
+        if root is None:
+            return
+        try:
+            self._ask_win = show_ask_window(
+                self.ui,
+                on_submit=self._on_ask_submit,
+                window=self._ask_win,
+            )
+        except Exception as exc:
+            log.exception("Ask window failed")
+            self._toast("snip-ai", f"Could not open Ask: {exc}", duration_ms=4000)
+
+    def _on_ask_submit(self, question: str) -> None:
+        self._ask_win = None
+        self._start_ask_job(question)
 
     def open_settings(self) -> None:
         """Hotkey and tray both land here; the dialog must run on the Tk thread."""
@@ -153,10 +184,14 @@ class SnipApp:
             self.config.hotkey: self.capture_screen,
             self.config.region_hotkey: self.capture_region,
         }
+        if self.config.ask_hotkey:
+            bindings[self.config.ask_hotkey] = self.open_ask
         if self.config.settings_hotkey:
             bindings[self.config.settings_hotkey] = self.open_settings
         listener = start_hotkeys(bindings)
         hint = f"{self.config.hotkey} screen · {self.config.region_hotkey} snip"
+        if self.config.ask_hotkey:
+            hint += f" · {self.config.ask_hotkey} ask"
         if self.config.settings_hotkey:
             hint += f" · {self.config.settings_hotkey} settings"
         self._toast("snip-ai", hint, duration_ms=4000)
@@ -187,6 +222,30 @@ class SnipApp:
             self._busy = True
         thread = threading.Thread(target=self._job, args=(mode,), daemon=True)
         thread.start()
+
+    def _start_ask_job(self, question: str) -> None:
+        with self._lock:
+            if self._busy:
+                self._toast("snip-ai", "Still solving…", duration_ms=2000)
+                return
+            self._busy = True
+        thread = threading.Thread(target=self._ask_job, args=(question,), daemon=True)
+        thread.start()
+
+    def _ask_job(self, question: str) -> None:
+        try:
+            self._toast("snip-ai", "Solving…", duration_ms=2500)
+            self.solve_question(question, notify=True)
+        except SnipError as exc:
+            message = str(exc)
+            log.warning("%s", message)
+            self._toast("snip-ai", message, duration_ms=5000)
+        except Exception:
+            log.exception("Ask/solve failed")
+            self._toast("snip-ai", "Something went wrong. See the log.", duration_ms=5000)
+        finally:
+            with self._lock:
+                self._busy = False
 
     def _job(self, mode: str) -> None:
         try:

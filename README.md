@@ -5,6 +5,7 @@ Press a hotkey, send what’s on your screen to AI, and get a **small corner toa
 ```
 Ctrl+Shift+Space   capture the monitor under the cursor
 Ctrl+Shift+.       drag a rectangle (snip), then solve that region
+Ctrl+Shift+A       type a question in a small corner window (no screenshot)
 Ctrl+Shift+/       open Settings (change your key or model)
 ```
 
@@ -27,7 +28,7 @@ You only need to do this once.
 
 That’s it. The first launch installs snip-ai for you; later launches just start it.
 
-On **Windows**, look for the snip-ai icon in the notification area (near the clock). Right-click it for **Last answers**, **Settings**, **Open at login**, and **Quit**. If you do not see it, click the `^` overflow arrow.
+On **Windows**, look for the snip-ai icon in the notification area (near the clock). Right-click it for **Ask a question**, **Last answers**, **Settings**, **Open at login**, and **Quit**. If you do not see it, click the `^` overflow arrow.
 
 A Gemini app / Gemini Pro subscription is not an API key. Create one at [Google AI Studio](https://aistudio.google.com/api-keys). OpenAI, Anthropic, OpenRouter, and a local [Ollama](https://ollama.com/) vision model also work — pick them in the same setup window.
 
@@ -51,7 +52,7 @@ Windows PowerShell: run `.\Start.bat` from this folder if you want a console. To
 ## After it is running
 
 1. Put a problem, error, or question on screen.
-2. Press **Ctrl+Shift+Space** (whole current monitor) or **Ctrl+Shift+.** (drag a snip).
+2. Press **Ctrl+Shift+Space** (whole current monitor) or **Ctrl+Shift+.** (drag a snip). To ask without a screenshot, press **Ctrl+Shift+A**, type in the small corner window, and hit Enter.
 3. A tiny **Solving…** toast appears, then the answer. Click the toast for the full write-up.
 4. Paste if you want — it is also on the clipboard. Older answers: tray **Last answers** (keeps the last 10).
 

@@ -118,7 +118,11 @@ def show_history_window(
         body.configure(state="normal")
         body.delete("1.0", "end")
         if entry is None:
-            body.insert("1.0", "No answers yet.\n\nPress Ctrl+Shift+Space (or snip) with a question on screen.")
+            body.insert(
+                "1.0",
+                "No answers yet.\n\nPress Ctrl+Shift+Space (or snip) with a question on screen, "
+                "or Ctrl+Shift+A to type one.",
+            )
         else:
             body.insert("1.0", entry.full or entry.headline)
         body.configure(state="disabled")
