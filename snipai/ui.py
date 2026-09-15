@@ -316,13 +316,28 @@ def show_ask_window(
 
     win = tk.Toplevel(ui.root)
     win.withdraw()
-    win.overrideredirect(True)
+    win.title("Ask")
+    # Borderless toast look on Windows (SetForegroundWindow can focus it).
+    # On Linux/mac the window manager will not type into override-redirect
+    # popups, so keep a tiny titled dialog instead.
+    if sys.platform == "win32":
+        win.overrideredirect(True)
+    else:
+        try:
+            win.attributes("-type", "dialog")
+        except tk.TclError:
+            pass
+        try:
+            win.resizable(False, False)
+        except tk.TclError:
+            pass
     try:
         win.attributes("-topmost", True)
     except tk.TclError:
         pass
     try:
-        win.attributes("-type", "dialog")
+        if sys.platform == "win32":
+            win.attributes("-toolwindow", True)
     except tk.TclError:
         pass
     try:
@@ -350,21 +365,27 @@ def show_ask_window(
         anchor="w",
     ).pack(fill="x", pady=(2, 6))
 
+    box = tk.Frame(inner, bg=ACCENT, padx=1, pady=1)
+    box.pack(fill="both", expand=True)
     text = tk.Text(
-        inner,
+        box,
         height=4,
         width=36,
         wrap="word",
         bg="#111316",
         fg=FG,
-        insertbackground=FG,
+        insertbackground=ACCENT,
+        insertwidth=2,
         relief="flat",
-        highlightthickness=1,
-        highlightbackground=BORDER,
-        highlightcolor=ACCENT,
+        borderwidth=0,
+        highlightthickness=0,
         font=font,
         padx=8,
         pady=6,
+        undo=True,
+        exportselection=False,
+        selectbackground="#2a2f38",
+        selectforeground=FG,
     )
     text.pack(fill="both", expand=True)
 
@@ -374,6 +395,10 @@ def show_ask_window(
         if closed["done"]:
             return
         closed["done"] = True
+        try:
+            win.grab_release()
+        except tk.TclError:
+            pass
         try:
             win.destroy()
         except tk.TclError:
@@ -421,8 +446,13 @@ def show_ask_window(
     win.bind("<Escape>", cancel)
     text.bind("<Escape>", cancel)
     text.bind("<Return>", on_return)
+    text.bind("<KP_Enter>", on_return)
     text.bind("<Control-Return>", submit)
     win.protocol("WM_DELETE_WINDOW", cancel)
+    try:
+        win.grab_set()
+    except tk.TclError:
+        pass
 
     win._entry = text  # type: ignore[attr-defined]
     win._submit = submit  # type: ignore[attr-defined]
