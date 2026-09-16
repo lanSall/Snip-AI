@@ -151,9 +151,16 @@ def format_binding(hotkey: str) -> str:
         "mouse_left": "Left click",
         "mouse_right": "Right click",
     }
-    key = labels.get(binding.key, binding.key.upper() if len(binding.key) == 1 else binding.key)
-    if binding.key.startswith("mouse") and binding.key[5:].isdigit() and binding.key not in labels:
-        key = f"Mouse {binding.key[5:]}"
+    key = labels.get(binding.key)
+    if key is None:
+        if binding.key.startswith("f") and binding.key[1:].isdigit():
+            key = binding.key.upper()
+        elif binding.key.startswith("mouse") and binding.key[5:].isdigit():
+            key = f"Mouse {binding.key[5:]}"
+        elif len(binding.key) == 1:
+            key = binding.key.upper()
+        else:
+            key = binding.key
     bits = [labels.get(m, m.title()) for m in binding.modifiers]
     bits.append(key)
     return "+".join(bits)

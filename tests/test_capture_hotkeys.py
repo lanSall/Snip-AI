@@ -33,6 +33,7 @@ def test_parse_mouse_and_keyboard_bindings():
 
 
 def test_format_binding_labels():
+    assert format_binding("f9") == "F9"
     assert format_binding("ctrl+shift+space") == "Ctrl+Shift+Space"
     assert "Mouse 4" in format_binding("mouse4")
     assert format_binding("mouse_middle") == "Middle click"
