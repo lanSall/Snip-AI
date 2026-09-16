@@ -8,6 +8,12 @@ import webbrowser
 from tkinter import ttk
 
 from snipai.config import KEY_SIGNUP_URLS, Config, apply_setup, models_for_provider
+from snipai.hotkeys import (
+    format_binding,
+    normalize_binding,
+    start_shortcut_capture,
+    validate_binding,
+)
 
 BG = "#1b1d21"
 FG = "#f3f4f6"
@@ -55,7 +61,7 @@ def run_setup_wizard(
     root.title("snip-ai settings" if running else "snip-ai setup")
     root.configure(bg=BG)
     try:
-        root.resizable(False, False)
+        root.resizable(True, True)
     except tk.TclError:
         pass
 
@@ -71,7 +77,7 @@ def run_setup_wizard(
 
     heading = "snip-ai settings" if running else "snip-ai"
     blurb = (
-        "Change your API key or model here. After Save, hotkeys keep working."
+        "Change your API key, model, or shortcuts here. After Save, they apply right away."
         if running
         else "Paste an API key, pick a model, then a hotkey sends whatever is\n"
         "on screen to AI and shows a tiny answer."
@@ -192,6 +198,131 @@ def run_setup_wizard(
     )
     link.pack(fill="x", pady=(4, 8))
 
+    tk.Label(frame, text="Shortcuts", bg=BG, fg=FG, font=_FONT, anchor="w").pack(fill="x", pady=(8, 0))
+    tk.Label(
+        frame,
+        text="Click Change, then press a key combo or a mouse side / middle button.\n"
+        "Left click cannot be a shortcut.",
+        bg=BG,
+        fg=MUTED,
+        font=_FONT_SMALL,
+        anchor="w",
+        justify="left",
+    ).pack(fill="x", pady=(2, 8))
+
+    shortcut_specs = (
+        ("hotkey", "Screen", config.hotkey),
+        ("region_hotkey", "Snip", config.region_hotkey),
+        ("ask_hotkey", "Ask", config.ask_hotkey),
+        ("settings_hotkey", "Settings", config.settings_hotkey),
+    )
+    shortcut_vars: dict[str, tk.StringVar] = {}
+    shortcut_labels: dict[str, tk.Label] = {}
+    shortcut_buttons: dict[str, tk.Button] = {}
+    capturing: dict[str, object] = {"id": None, "stop": None}
+
+    def show_shortcut(action: str) -> None:
+        label = shortcut_labels.get(action)
+        if label is None:
+            return
+        if capturing["id"] == action:
+            label.configure(text="Press a key or mouse button…")
+            return
+        label.configure(text=format_binding(shortcut_vars[action].get()))
+
+    def abort_capture() -> None:
+        stop = capturing["stop"]
+        capturing["stop"] = None
+        old = capturing["id"]
+        capturing["id"] = None
+        if callable(stop):
+            try:
+                stop()
+            except Exception:
+                pass
+        if old:
+            show_shortcut(str(old))
+            btn = shortcut_buttons.get(str(old))
+            if btn is not None:
+                btn.configure(text="Change")
+
+    def apply_captured(action: str, value: str | None) -> None:
+        capturing["stop"] = None
+        capturing["id"] = None
+        btn = shortcut_buttons.get(action)
+        if btn is not None:
+            btn.configure(text="Change")
+        if not value:
+            show_shortcut(action)
+            return
+        err = validate_binding(value)
+        if err:
+            error_var.set(err)
+            show_shortcut(action)
+            return
+        shortcut_vars[action].set(value)
+        error_var.set("")
+        show_shortcut(action)
+
+    def begin_capture(action: str) -> None:
+        if capturing["id"] == action:
+            abort_capture()
+            return
+        abort_capture()
+        capturing["id"] = action
+        shortcut_buttons[action].configure(text="Cancel")
+        show_shortcut(action)
+
+        def captured(value: str | None, which: str = action) -> None:
+            try:
+                root.after(0, lambda v=value: apply_captured(which, v))
+            except tk.TclError:
+                pass
+
+        try:
+            capturing["stop"] = start_shortcut_capture(captured)
+        except Exception as exc:
+            capturing["id"] = None
+            shortcut_buttons[action].configure(text="Change")
+            show_shortcut(action)
+            error_var.set(f"Could not listen for a shortcut: {exc}")
+
+    for action, title, current in shortcut_specs:
+        shortcut_vars[action] = tk.StringVar(value=current)
+        row = tk.Frame(frame, bg=BG)
+        row.pack(fill="x", pady=3)
+        tk.Label(row, text=title, bg=BG, fg=FG, font=_FONT, width=10, anchor="w").pack(side="left")
+        shown = tk.Label(
+            row,
+            text=format_binding(current),
+            bg=ENTRY_BG,
+            fg=FG,
+            font=_FONT,
+            anchor="w",
+            padx=10,
+            pady=6,
+        )
+        shown.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        shortcut_labels[action] = shown
+        change = tk.Button(
+            row,
+            text="Change",
+            command=lambda a=action: begin_capture(a),
+            bg=BTN_BG,
+            fg=FG,
+            activebackground="#3a404a",
+            activeforeground=FG,
+            highlightthickness=0,
+            bd=0,
+            relief="flat",
+            font=_FONT_SMALL,
+            padx=10,
+            pady=4,
+            cursor="hand2",
+        )
+        change.pack(side="right")
+        shortcut_buttons[action] = change
+
     tk.Label(frame, textvariable=error_var, bg=BG, fg=DANGER, font=_FONT_SMALL, anchor="w").pack(fill="x")
 
     def refresh_provider(_event: object | None = None) -> None:
@@ -213,17 +344,39 @@ def run_setup_wizard(
     combo.bind("<<ComboboxSelected>>", refresh_provider)
 
     def save_and_close() -> None:
+        abort_capture()
         provider = selected_provider()
         key = key_var.get().strip()
         if provider != "ollama" and not key:
             error_var.set("Paste a key, or choose Ollama if you run a model locally.")
             return
-        result["config"] = apply_setup(
+        chosen: dict[str, str] = {}
+        for action, _title, _current in shortcut_specs:
+            raw = shortcut_vars[action].get().strip()
+            err = validate_binding(raw)
+            if err:
+                error_var.set(f"{_title}: {err}")
+                return
+            chosen[action] = normalize_binding(raw)
+        seen: dict[str, str] = {}
+        for action, title, _current in shortcut_specs:
+            bound = chosen[action]
+            if bound in seen:
+                error_var.set(f"{title} and {seen[bound]} cannot share the same shortcut.")
+                return
+            seen[bound] = title
+        updated = apply_setup(
             config, api_key=key, provider=provider, model=selected_model()
         )
+        updated.hotkey = chosen["hotkey"]
+        updated.region_hotkey = chosen["region_hotkey"]
+        updated.ask_hotkey = chosen["ask_hotkey"]
+        updated.settings_hotkey = chosen["settings_hotkey"]
+        result["config"] = updated
         root.destroy()
 
     def cancel() -> None:
+        abort_capture()
         result["config"] = None
         root.destroy()
 
@@ -262,24 +415,19 @@ def run_setup_wizard(
         cursor="hand2",
     ).pack(side="right")
 
-    tk.Label(
-        frame,
-        text="Ctrl+Shift+Space  screen    ·    Ctrl+Shift+Period  snip\n"
-        "Ctrl+Shift+A  type a question    ·    Ctrl+Shift+/  settings",
-        bg=BG,
-        fg=MUTED,
-        font=_FONT_SMALL,
-        anchor="w",
-        justify="left",
-    ).pack(fill="x", pady=(18, 0))
+    root._hotkeys = shortcut_vars  # type: ignore[attr-defined]
+    root._save = save_and_close  # type: ignore[attr-defined]
+    root._cancel = cancel  # type: ignore[attr-defined]
 
     root.protocol("WM_DELETE_WINDOW", cancel)
     entry.focus_set()
     root.update_idletasks()
-    width = max(root.winfo_reqwidth(), 500)
+    width = max(root.winfo_reqwidth(), 520)
     height = root.winfo_reqheight()
+    screen_h = root.winfo_screenheight()
+    height = min(height, max(420, screen_h - 80))
     x = max(0, (root.winfo_screenwidth() - width) // 2)
-    y = max(0, (root.winfo_screenheight() - height) // 3)
+    y = max(0, (screen_h - height) // 3)
     try:
         root.geometry(f"{width}x{height}+{x}+{y}")
     except tk.TclError:

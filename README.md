@@ -6,7 +6,7 @@ Press a hotkey, send what’s on your screen to AI, and get a **small corner toa
 Ctrl+Shift+Space   capture the monitor under the cursor
 Ctrl+Shift+.       drag a rectangle (snip), then solve that region
 Ctrl+Shift+A       type a question in a small corner window (no screenshot)
-Ctrl+Shift+/       open Settings (change your key or model)
+Ctrl+Shift+/       open Settings (change your key, model, or shortcuts)
 ```
 
 The toast does not steal keyboard focus. It stays quiet (no sound) and dismisses itself.
@@ -56,7 +56,7 @@ Windows PowerShell: run `.\Start.bat` from this folder if you want a console. To
 3. A tiny **Solving…** toast appears, then the answer. Click the toast for the full write-up.
 4. Paste if you want — it is also on the clipboard. Older answers: tray **Last answers** (keeps the last 10).
 
-Change your key or model anytime: tray **Settings**, or **Ctrl+Shift+/**.
+Change your key, model, or shortcuts anytime: tray **Settings**, or **Ctrl+Shift+/**. In Settings, click **Change** next to a shortcut, then press a key combo or a **mouse side / middle button**. Left click cannot be a shortcut (it would fire all the time). After Save, the new shortcuts work immediately.
 
 Other commands:
 

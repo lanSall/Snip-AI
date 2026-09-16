@@ -156,6 +156,17 @@ def test_save_config_roundtrip(tmp_path: Path, monkeypatch):
     assert "ask_hotkey:" in text
 
 
+def test_save_config_roundtrip_mouse_hotkey(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    path = tmp_path / "config.yaml"
+    saved = apply_setup(from_dict({}), api_key="AIzaSyTESTKEY")
+    saved.region_hotkey = "mouse4"
+    save_config(saved, path)
+    loaded = load_config(path)
+    assert loaded.region_hotkey == "mouse4"
+    assert "mouse4" in path.read_text(encoding="utf-8")
+
+
 def test_example_files_do_not_contain_live_keys():
     import re
 

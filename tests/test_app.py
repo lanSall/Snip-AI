@@ -138,6 +138,43 @@ def test_open_settings_reloads_key_and_model(tmp_path: Path, monkeypatch):
     assert any("gemini-3.1-flash-lite" in body for _title, body in ui.toasts)
 
 
+def test_open_settings_restarts_hotkeys_with_mouse_bind(tmp_path: Path, monkeypatch):
+    from snipai.config import apply_setup, from_dict, save_config
+
+    path = tmp_path / "config.yaml"
+    cfg = apply_setup(from_dict({}), api_key="AIza-old", provider="gemini")
+    save_config(cfg, path)
+    seen: list[set[str]] = []
+
+    def fake_start(bindings):
+        seen.append(set(bindings))
+
+        class Listener:
+            def stop(self) -> None:
+                return None
+
+        return Listener()
+
+    def fake_wizard(config, **kwargs):
+        updated = apply_setup(
+            config,
+            api_key="AIza-old",
+            provider="gemini",
+            model=config.model,
+        )
+        updated.region_hotkey = "mouse4"
+        return updated
+
+    monkeypatch.setattr("snipai.app.start_hotkeys", fake_start)
+    monkeypatch.setattr("snipai.setup_ui.run_setup_wizard", fake_wizard)
+    ui = FakeUI()
+    app = SnipApp(cfg, MockSolver("ANSWER: 1\nWHY: x"), ui, config_path=path)
+    app._hotkeys_running = True
+    app.open_settings()
+    assert app.config.region_hotkey == "mouse4"
+    assert any("mouse4" in keys for keys in seen)
+
+
 def test_open_settings_cancel_leaves_config(tmp_path: Path, monkeypatch):
     from snipai.config import apply_setup, from_dict, save_config
 

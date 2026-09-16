@@ -379,10 +379,12 @@ api_key: ""               # paste your Gemini/OpenAI/Anthropic key here
 base_url: ""              # optional override, e.g. http://127.0.0.1:11434/v1
 
 # Global hotkeys. Use ctrl, alt, shift, cmd (Windows key / Command).
+# Mouse side/middle buttons also work: mouse4, mouse5, mouse_middle
+# (change these from Settings — click Change, then press the key or button).
 hotkey: ctrl+shift+space          # capture the monitor under the cursor
 region_hotkey: ctrl+shift+period  # drag a rectangle, then solve that snip
 ask_hotkey: ctrl+shift+a          # type a question (no screenshot)
-settings_hotkey: ctrl+shift+slash # open Settings (key and model)
+settings_hotkey: ctrl+shift+slash # open Settings (key, model, shortcuts)
 capture_mode: screen              # screen | region  (used by `snip-ai once`)
 
 clipboard: true           # copy the full answer so you can paste it
@@ -442,7 +444,7 @@ def save_config(config: Config, path: Path | None = None) -> Path:
         data["mock_reply"] = config.mock_reply
     header = (
         "# snip-ai settings\n"
-        "# You can change the key and model from Settings (tray icon, or Ctrl+Shift+/).\n"
+        "# You can change the key, model, and shortcuts from Settings (tray icon, or Ctrl+Shift+/).\n"
     )
     config_path.write_text(header + yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
     _protect_config_file(config_path)

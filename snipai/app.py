@@ -58,6 +58,8 @@ class SnipApp:
         self._settings_open = False
         self._history_win = None
         self._ask_win = None
+        self._listener = None
+        self._hotkeys_running = False
 
     def capture_screen(self) -> None:
         self._start_job("screen")
@@ -143,6 +145,7 @@ class SnipApp:
         if self._lift_open_settings():
             return
         self._settings_open = True
+        self._stop_hotkeys()
         try:
             root = getattr(self.ui, "root", None)
             updated = run_setup_wizard(self.config, master=root, running=True)
@@ -156,6 +159,8 @@ class SnipApp:
             self._toast("snip-ai", f"Settings failed: {exc}", duration_ms=4000)
         finally:
             self._settings_open = False
+            if self._hotkeys_running:
+                self._start_hotkey_listener()
 
     def _lift_open_settings(self) -> bool:
         if not self._settings_open:
@@ -180,6 +185,26 @@ class SnipApp:
         return True
 
     def run_hotkeys(self) -> None:
+        self._hotkeys_running = True
+        self._start_hotkey_listener()
+        from snipai.hotkeys import format_binding
+
+        bits = [
+            f"{format_binding(self.config.hotkey)} screen",
+            f"{format_binding(self.config.region_hotkey)} snip",
+        ]
+        if self.config.ask_hotkey:
+            bits.append(f"{format_binding(self.config.ask_hotkey)} ask")
+        if self.config.settings_hotkey:
+            bits.append(f"{format_binding(self.config.settings_hotkey)} settings")
+        self._toast("snip-ai", " · ".join(bits), duration_ms=4000)
+        try:
+            self.ui.mainloop()
+        finally:
+            self._hotkeys_running = False
+            self._stop_hotkeys()
+
+    def _bindings(self) -> dict:
         bindings = {
             self.config.hotkey: self.capture_screen,
             self.config.region_hotkey: self.capture_region,
@@ -188,17 +213,26 @@ class SnipApp:
             bindings[self.config.ask_hotkey] = self.open_ask
         if self.config.settings_hotkey:
             bindings[self.config.settings_hotkey] = self.open_settings
-        listener = start_hotkeys(bindings)
-        hint = f"{self.config.hotkey} screen · {self.config.region_hotkey} snip"
-        if self.config.ask_hotkey:
-            hint += f" · {self.config.ask_hotkey} ask"
-        if self.config.settings_hotkey:
-            hint += f" · {self.config.settings_hotkey} settings"
-        self._toast("snip-ai", hint, duration_ms=4000)
+        return bindings
+
+    def _start_hotkey_listener(self) -> None:
+        self._stop_hotkeys()
         try:
-            self.ui.mainloop()
-        finally:
+            self._listener = start_hotkeys(self._bindings())
+        except SnipError as exc:
+            log.warning("Could not start shortcuts: %s", exc)
+            self._toast("snip-ai", str(exc), duration_ms=4000)
+            self._listener = None
+
+    def _stop_hotkeys(self) -> None:
+        listener = self._listener
+        self._listener = None
+        if listener is None:
+            return
+        try:
             listener.stop()
+        except Exception:
+            log.debug("Hotkey listener stop failed", exc_info=True)
 
     def _toast(
         self,

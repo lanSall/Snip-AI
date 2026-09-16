@@ -164,3 +164,37 @@ def test_ask_window_empty_stays_open():
         win._cancel()
     finally:
         ui.destroy()
+
+
+def test_settings_saves_mouse_shortcut():
+    from snipai.config import Config
+    from snipai.setup_ui import run_setup_wizard
+
+    ui = ToastUI(NotifyConfig(duration_ms=50))
+    cfg = Config(provider="mock", api_key="mock-key")
+    seen: dict[str, object] = {}
+
+    def start() -> None:
+        def tweak() -> None:
+            for child in ui.root.winfo_children():
+                hotkeys = getattr(child, "_hotkeys", None)
+                save = getattr(child, "_save", None)
+                if hotkeys is not None and callable(save):
+                    hotkeys["region_hotkey"].set("mouse4")
+                    save()
+                    return
+            ui.root.quit()
+
+        ui.root.after(200, tweak)
+        seen["cfg"] = run_setup_wizard(cfg, master=ui.root, running=True)
+        ui.root.quit()
+
+    try:
+        ui.root.after(20, start)
+        ui.root.mainloop()
+        updated = seen.get("cfg")
+        assert updated is not None
+        assert updated.region_hotkey == "mouse4"
+        assert updated.hotkey == "ctrl+shift+space"
+    finally:
+        ui.destroy()

@@ -96,7 +96,7 @@ def start_tray(
         items.append(MenuItem("Last answers", history))
     items.extend(
         [
-            MenuItem("Settings (key and model)", settings, default=True),
+            MenuItem("Settings (key, model, shortcuts)", settings, default=True),
             MenuItem("Open at login", toggle_login, checked=lambda item: autostart.is_enabled()),
             Menu.SEPARATOR,
             MenuItem("Quit snip-ai", quit_app),
