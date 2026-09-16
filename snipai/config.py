@@ -28,6 +28,119 @@ If it is multiple choice, ANSWER is the letter and the choice text.
 If there is no problem to solve, ANSWER is a one-line description of what you see.
 Do not use markdown."""
 
+EXPLAIN_SYSTEM_PROMPT = """You are a screenshot problem-solver.
+
+Look at the image. Identify the question, error, puzzle, or task on screen.
+Solve it. Be correct. Explain enough that the user can reproduce the result.
+
+Format your reply EXACTLY like this:
+ANSWER: <the final answer, as short as possible>
+WHY: <three to six sentences, including the key steps>
+
+If the screenshot is an error message, ANSWER is the fix and WHY is how to apply it.
+If it is multiple choice, ANSWER is the letter and the choice text, and WHY says why the others are wrong.
+If there is no problem to solve, ANSWER is a description of what you see.
+Do not use markdown."""
+
+DEBUG_SYSTEM_PROMPT = """You are a screenshot debugger.
+
+Look at the image. Find the error, warning, failed test, or broken step.
+Give a concrete fix.
+
+Format your reply EXACTLY like this:
+ANSWER: <the fix, as short as possible>
+WHY: <what is wrong and what to change>
+
+If there is no error, treat it as a normal problem and still use ANSWER / WHY.
+Do not use markdown."""
+
+ASK_SYSTEM_PROMPTS = {
+    "short": """You are a concise problem-solver.
+
+The user typed a question. Solve it. Be correct and concise.
+
+Format your reply EXACTLY like this:
+ANSWER: <the final answer, as short as possible>
+WHY: <one or two sentences>
+
+Do not use markdown.""",
+    "explain": """You are a helpful problem-solver.
+
+The user typed a question. Solve it. Be correct. Explain enough to reproduce the result.
+
+Format your reply EXACTLY like this:
+ANSWER: <the final answer, as short as possible>
+WHY: <three to six sentences, including the key steps>
+
+Do not use markdown.""",
+    "debug": """You are a debugger.
+
+The user typed a question about an error or broken step. Give a concrete fix.
+
+Format your reply EXACTLY like this:
+ANSWER: <the fix, as short as possible>
+WHY: <what is wrong and what to change>
+
+Do not use markdown.""",
+}
+
+PROMPT_STYLE_CHOICES = (
+    ("short", "Short answer"),
+    ("explain", "More explanation"),
+    ("debug", "Debug this error"),
+)
+
+PROMPT_STYLE_SNIP = {
+    "short": DEFAULT_SYSTEM_PROMPT,
+    "explain": EXPLAIN_SYSTEM_PROMPT,
+    "debug": DEBUG_SYSTEM_PROMPT,
+}
+
+TOAST_DURATION_CHOICES = (
+    (4000, "4 seconds"),
+    (8000, "8 seconds"),
+    (12000, "12 seconds"),
+    (20000, "20 seconds"),
+    (0, "Until I click"),
+)
+
+
+def normalize_prompt_style(style: str) -> str:
+    name = (style or "short").strip().lower()
+    if name in PROMPT_STYLE_SNIP:
+        return name
+    return "short"
+
+
+def apply_prompt_style(config: Config) -> Config:
+    style = normalize_prompt_style(getattr(config, "prompt_style", "short"))
+    config.prompt_style = style
+    config.system_prompt = PROMPT_STYLE_SNIP[style]
+    return config
+
+
+def ask_system_prompt(config: Config) -> str:
+    style = normalize_prompt_style(getattr(config, "prompt_style", "short"))
+    return ASK_SYSTEM_PROMPTS[style]
+
+
+def snip_user_prompt(config: Config) -> str:
+    style = normalize_prompt_style(getattr(config, "prompt_style", "short"))
+    if style == "explain":
+        return (
+            "Solve the problem shown in this screenshot. "
+            "Put ANSWER on the first line and WHY on the next lines with the key steps."
+        )
+    if style == "debug":
+        return (
+            "Find the error or broken step in this screenshot and give a concrete fix. "
+            "Put ANSWER on the first line and WHY on the second."
+        )
+    return (
+        "Solve the problem shown in this screenshot. "
+        "Put ANSWER on the first line and WHY on the second."
+    )
+
 
 def user_config_dir() -> Path:
     if os.name == "nt":
@@ -168,6 +281,7 @@ class Config:
     save_shots: bool = False
     shots_dir: str = ""
     max_image_width: int = 1600
+    prompt_style: str = "short"
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
     mock_reply: str = ""
     notify: NotifyConfig = field(default_factory=NotifyConfig)
@@ -236,7 +350,7 @@ def from_dict(raw: dict[str, Any] | None) -> Config:
     provider = str(os.environ.get("SNIPAI_PROVIDER") or data.get("provider", defaults.provider))
     model = str(os.environ.get("SNIPAI_MODEL") or data.get("model", defaults.model))
     hotkey = str(os.environ.get("SNIPAI_HOTKEY") or data.get("hotkey", defaults.hotkey))
-    return Config(
+    config = Config(
         provider=provider,
         model=model,
         api_key=str(data.get("api_key", defaults.api_key)),
@@ -250,10 +364,14 @@ def from_dict(raw: dict[str, Any] | None) -> Config:
         save_shots=bool(data.get("save_shots", defaults.save_shots)),
         shots_dir=str(data.get("shots_dir", defaults.shots_dir)),
         max_image_width=int(data.get("max_image_width", defaults.max_image_width)),
+        prompt_style=normalize_prompt_style(str(data.get("prompt_style", defaults.prompt_style))),
         system_prompt=str(data.get("system_prompt", defaults.system_prompt)),
         mock_reply=str(data.get("mock_reply", defaults.mock_reply)),
         notify=_notify_from_dict(data.get("notify")),
     )
+    if "prompt_style" in data or "system_prompt" not in data:
+        apply_prompt_style(config)
+    return config
 
 
 def looks_like_gemini_key(key: str) -> bool:
@@ -391,6 +509,7 @@ clipboard: true           # copy the full answer so you can paste it
 save_shots: false
 shots_dir: ""
 max_image_width: 1600
+prompt_style: short       # short | explain | debug  (set from Settings)
 
 notify:
   enabled: true
@@ -436,9 +555,11 @@ def save_config(config: Config, path: Path | None = None) -> Path:
         "save_shots": config.save_shots,
         "shots_dir": config.shots_dir,
         "max_image_width": config.max_image_width,
+        "prompt_style": normalize_prompt_style(config.prompt_style),
         "notify": asdict(config.notify),
     }
-    if config.system_prompt != DEFAULT_SYSTEM_PROMPT:
+    style = normalize_prompt_style(config.prompt_style)
+    if config.system_prompt != PROMPT_STYLE_SNIP.get(style, DEFAULT_SYSTEM_PROMPT):
         data["system_prompt"] = config.system_prompt
     if config.mock_reply:
         data["mock_reply"] = config.mock_reply

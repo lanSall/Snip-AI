@@ -9,7 +9,7 @@ Ctrl+Shift+A       type a question in a small corner window (no screenshot)
 Ctrl+Shift+/       open Settings (change your key, model, or shortcuts)
 ```
 
-The toast does not steal keyboard focus. It stays quiet (no sound) and dismisses itself.
+The toast does not steal keyboard focus. After a snip it also has **Retry** and **Follow up**. It stays quiet (no sound). How long it stays is a Settings option (or until you click).
 
 New installs use **Gemini 3.8 Flash** (fast, usually free in AI Studio). You can switch to Flash-Lite or Pro in Settings — no YAML editing.
 
@@ -28,7 +28,7 @@ You only need to do this once.
 
 That’s it. The first launch installs snip-ai for you; later launches just start it.
 
-On **Windows**, look for the snip-ai icon in the notification area (near the clock). Right-click it for **Ask a question**, **Last answers**, **Settings**, **Open at login**, and **Quit**. If you do not see it, click the `^` overflow arrow.
+On **Windows**, look for the snip-ai icon in the notification area (near the clock). Right-click it for **Ask a question**, **Follow up on last snip**, **Last answers**, **Pause shortcuts**, **Settings**, **Open at login**, and **Quit**. If you do not see it, click the `^` overflow arrow. **Pause shortcuts** turns off capture / snip / Ask keys; Settings and the tray still work.
 
 A Gemini app / Gemini Pro subscription is not an API key. Create one at [Google AI Studio](https://aistudio.google.com/api-keys). OpenAI, Anthropic, OpenRouter, and a local [Ollama](https://ollama.com/) vision model also work — pick them in the same setup window.
 
@@ -53,10 +53,10 @@ Windows PowerShell: run `.\Start.bat` from this folder if you want a console. To
 
 1. Put a problem, error, or question on screen.
 2. Press **Ctrl+Shift+Space** (whole current monitor) or **Ctrl+Shift+.** (drag a snip). To ask without a screenshot, press **Ctrl+Shift+A**, type in the small corner window, and hit Enter.
-3. A tiny **Solving…** toast appears, then the answer. Click the toast for the full write-up.
+3. A tiny **Solving…** toast appears, then the answer. Click the toast for the full write-up. On a snip, use **Retry** (same screenshot again) or **Follow up** (type a question about that snip).
 4. Paste if you want — it is also on the clipboard. Older answers: tray **Last answers** (keeps the last 10).
 
-Change your key, model, or shortcuts anytime: tray **Settings**, or **Ctrl+Shift+/**. In Settings, click **Change** next to a shortcut, then press a key combo or a **mouse side / middle button**. Left click cannot be a shortcut (it would fire all the time). After Save, the new shortcuts work immediately.
+Change your key, model, or shortcuts anytime: tray **Settings**, or **Ctrl+Shift+/**. In Settings you can also pick **Answer style** (short, more explanation, or debug this error) and **Toast stays**. Click **Change** next to a shortcut, then press a key combo or a **mouse side / middle button**. Left click cannot be a shortcut (it would fire all the time). After Save, the new shortcuts work immediately.
 
 Other commands:
 
@@ -94,4 +94,4 @@ You can also set `GEMINI_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY` in t
 
 ## Privacy
 
-Each capture is sent to whatever provider you configured. Screenshots are not saved unless you set `save_shots: true`. The last 10 answers are stored on this computer (`%LOCALAPPDATA%\snip-ai\answers.json` / `~/.local/share/snip-ai/answers.json`). Logs go to the same data folder.
+Each capture is sent to whatever provider you configured. Screenshots are not saved unless you set `save_shots: true`. The last snip is kept in memory only so Retry and Follow up can reuse it. The last 10 answers are stored on this computer (`%LOCALAPPDATA%\snip-ai\answers.json` / `~/.local/share/snip-ai/answers.json`). Logs go to the same data folder.

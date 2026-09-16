@@ -7,7 +7,16 @@ import tkinter as tk
 import webbrowser
 from tkinter import ttk
 
-from snipai.config import KEY_SIGNUP_URLS, Config, apply_setup, models_for_provider
+from snipai.config import (
+    KEY_SIGNUP_URLS,
+    PROMPT_STYLE_CHOICES,
+    TOAST_DURATION_CHOICES,
+    Config,
+    apply_prompt_style,
+    apply_setup,
+    models_for_provider,
+    normalize_prompt_style,
+)
 from snipai.hotkeys import (
     format_binding,
     normalize_binding,
@@ -139,6 +148,40 @@ def run_setup_wizard(
             return choices[0][0] if choices else config.model
 
     fill_models(selected_provider(), config.model)
+
+    tk.Label(frame, text="Answer style", bg=BG, fg=FG, font=_FONT, anchor="w").pack(fill="x")
+    style_ids = [sid for sid, _label in PROMPT_STYLE_CHOICES]
+    style_labels = [label for _sid, label in PROMPT_STYLE_CHOICES]
+    style_combo = ttk.Combobox(frame, values=style_labels, state="readonly", font=_FONT)
+    style_combo.pack(fill="x", pady=(4, 12))
+    try:
+        style_combo.current(style_ids.index(normalize_prompt_style(config.prompt_style)))
+    except ValueError:
+        style_combo.current(0)
+
+    def selected_style() -> str:
+        try:
+            return style_ids[style_combo.current()]
+        except Exception:
+            return "short"
+
+    tk.Label(frame, text="Toast stays", bg=BG, fg=FG, font=_FONT, anchor="w").pack(fill="x")
+    toast_ids = [ms for ms, _label in TOAST_DURATION_CHOICES]
+    toast_labels = [label for _ms, label in TOAST_DURATION_CHOICES]
+    toast_combo = ttk.Combobox(frame, values=toast_labels, state="readonly", font=_FONT)
+    toast_combo.pack(fill="x", pady=(4, 12))
+    current_ms = int(config.notify.duration_ms)
+    try:
+        toast_combo.current(toast_ids.index(current_ms))
+    except ValueError:
+        closest = min(toast_ids, key=lambda ms: abs(ms - current_ms) if ms else 10_000)
+        toast_combo.current(toast_ids.index(closest))
+
+    def selected_toast_ms() -> int:
+        try:
+            return int(toast_ids[toast_combo.current()])
+        except Exception:
+            return 8000
 
     tk.Label(frame, text="API key", bg=BG, fg=FG, font=_FONT, anchor="w").pack(fill="x")
     key_row = tk.Frame(frame, bg=BG)
@@ -372,6 +415,9 @@ def run_setup_wizard(
         updated.region_hotkey = chosen["region_hotkey"]
         updated.ask_hotkey = chosen["ask_hotkey"]
         updated.settings_hotkey = chosen["settings_hotkey"]
+        updated.prompt_style = selected_style()
+        apply_prompt_style(updated)
+        updated.notify.duration_ms = selected_toast_ms()
         result["config"] = updated
         root.destroy()
 
@@ -416,6 +462,8 @@ def run_setup_wizard(
     ).pack(side="right")
 
     root._hotkeys = shortcut_vars  # type: ignore[attr-defined]
+    root._style_combo = style_combo  # type: ignore[attr-defined]
+    root._toast_combo = toast_combo  # type: ignore[attr-defined]
     root._save = save_and_close  # type: ignore[attr-defined]
     root._cancel = cancel  # type: ignore[attr-defined]
 

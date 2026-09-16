@@ -8,28 +8,27 @@ from typing import Protocol
 import httpx
 
 from snipai import SnipError
-from snipai.config import Config, prepare_config
+from snipai.config import Config, ask_system_prompt, prepare_config, snip_user_prompt
 
 USER_PROMPT = (
     "Solve the problem shown in this screenshot. "
     "Put ANSWER on the first line and WHY on the second."
 )
 
-ASK_SYSTEM = """You are a concise problem-solver.
-
-The user typed a question. Solve it. Be correct and concise.
-
-Format your reply EXACTLY like this:
-ANSWER: <the final answer, as short as possible>
-WHY: <one or two sentences>
-
-Do not use markdown."""
+FOLLOW_USER = (
+    "This is the same screenshot as before.\n\n"
+    "Previous answer:\n{previous}\n\n"
+    "Follow-up: {question}\n\n"
+    "Answer the follow-up. Put ANSWER on the first line and WHY on the second."
+)
 
 
 class Solver(Protocol):
     def solve(self, png: bytes) -> str: ...
 
     def ask(self, question: str) -> str: ...
+
+    def follow_up(self, png: bytes, previous: str, question: str) -> str: ...
 
 
 def _b64(png: bytes) -> str:
@@ -62,6 +61,13 @@ class MockSolver:
         _require_question(question)
         return self.reply
 
+    def follow_up(self, png: bytes, previous: str, question: str) -> str:
+        _require_question(question)
+        if not png:
+            raise SnipError("No last snip to follow up on.")
+        self.last_follow_up = question
+        return self.reply
+
 
 class OpenAICompatibleSolver:
     def __init__(self, config: Config, client: httpx.Client | None = None) -> None:
@@ -70,7 +76,7 @@ class OpenAICompatibleSolver:
 
     def solve(self, png: bytes) -> str:
         user = [
-            {"type": "text", "text": USER_PROMPT},
+            {"type": "text", "text": snip_user_prompt(self.config)},
             {
                 "type": "image_url",
                 "image_url": {"url": _data_url(png)},
@@ -80,7 +86,24 @@ class OpenAICompatibleSolver:
 
     def ask(self, question: str) -> str:
         text = _require_question(question)
-        return self._chat(ASK_SYSTEM, [{"type": "text", "text": text}])
+        return self._chat(ask_system_prompt(self.config), [{"type": "text", "text": text}])
+
+    def follow_up(self, png: bytes, previous: str, question: str) -> str:
+        text = _require_question(question)
+        if not png:
+            raise SnipError("No last snip to follow up on.")
+        prev = (previous or "").strip() or "(none)"
+        user = [
+            {
+                "type": "text",
+                "text": FOLLOW_USER.format(previous=prev[:2000], question=text),
+            },
+            {
+                "type": "image_url",
+                "image_url": {"url": _data_url(png)},
+            },
+        ]
+        return self._chat(self.config.system_prompt, user)
 
     def _chat(self, system: str, user_content: list) -> str:
         key = self.config.resolved_api_key()
@@ -99,7 +122,7 @@ class OpenAICompatibleSolver:
             headers["X-Title"] = "snip-ai"
         payload = {
             "model": self.config.model,
-            "max_tokens": 400,
+            "max_tokens": _max_tokens(self.config),
             "messages": [
                 {"role": "system", "content": system},
                 {
@@ -138,13 +161,34 @@ class AnthropicSolver:
                     "data": _b64(png),
                 },
             },
-            {"type": "text", "text": USER_PROMPT},
+            {"type": "text", "text": snip_user_prompt(self.config)},
         ]
         return self._chat(self.config.system_prompt, user)
 
     def ask(self, question: str) -> str:
         text = _require_question(question)
-        return self._chat(ASK_SYSTEM, [{"type": "text", "text": text}])
+        return self._chat(ask_system_prompt(self.config), [{"type": "text", "text": text}])
+
+    def follow_up(self, png: bytes, previous: str, question: str) -> str:
+        text = _require_question(question)
+        if not png:
+            raise SnipError("No last snip to follow up on.")
+        prev = (previous or "").strip() or "(none)"
+        user = [
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": _b64(png),
+                },
+            },
+            {
+                "type": "text",
+                "text": FOLLOW_USER.format(previous=prev[:2000], question=text),
+            },
+        ]
+        return self._chat(self.config.system_prompt, user)
 
     def _chat(self, system: str, user_content: list) -> str:
         key = self.config.resolved_api_key()
@@ -161,7 +205,7 @@ class AnthropicSolver:
         }
         payload = {
             "model": self.config.model,
-            "max_tokens": 400,
+            "max_tokens": _max_tokens(self.config),
             "system": system,
             "messages": [
                 {
@@ -188,11 +232,22 @@ class OllamaSolver:
         self.client = client
 
     def solve(self, png: bytes) -> str:
-        return self._chat(self.config.system_prompt, USER_PROMPT, images=[_b64(png)])
+        return self._chat(self.config.system_prompt, snip_user_prompt(self.config), images=[_b64(png)])
 
     def ask(self, question: str) -> str:
         text = _require_question(question)
-        return self._chat(ASK_SYSTEM, text)
+        return self._chat(ask_system_prompt(self.config), text)
+
+    def follow_up(self, png: bytes, previous: str, question: str) -> str:
+        text = _require_question(question)
+        if not png:
+            raise SnipError("No last snip to follow up on.")
+        prev = (previous or "").strip() or "(none)"
+        return self._chat(
+            self.config.system_prompt,
+            FOLLOW_USER.format(previous=prev[:2000], question=text),
+            images=[_b64(png)],
+        )
 
     def _chat(self, system: str, user_content: str, images: list[str] | None = None) -> str:
         url = f"{self.config.resolved_base_url()}/api/chat"
@@ -215,6 +270,11 @@ class OllamaSolver:
         if not content:
             raise SnipError("The model returned an empty answer.")
         return str(content).strip()
+
+
+def _max_tokens(config: Config) -> int:
+    style = (getattr(config, "prompt_style", "short") or "short").strip().lower()
+    return 800 if style in {"explain", "debug"} else 400
 
 
 def _http_timeout() -> httpx.Timeout:

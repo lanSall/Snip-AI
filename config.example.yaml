@@ -19,10 +19,11 @@ clipboard: true           # copy the full answer so you can paste it
 save_shots: false
 shots_dir: ""
 max_image_width: 1600
+prompt_style: short       # short | explain | debug  (set from Settings)
 
 notify:
   enabled: true
-  duration_ms: 8000
+  duration_ms: 8000       # 0 = stay until you click the toast
   max_chars: 180
   position: bottom-right  # bottom-right | bottom-left | top-right | top-left
   sound: false

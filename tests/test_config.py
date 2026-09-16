@@ -231,3 +231,51 @@ def test_apply_setup_keeps_existing_pro_when_model_omitted():
         provider="gemini",
     )
     assert config.model == "gemini-3.1-pro-preview"
+
+
+def test_prompt_style_defaults_short():
+    from snipai.config import DEFAULT_SYSTEM_PROMPT
+
+    config = from_dict({})
+    assert config.prompt_style == "short"
+    assert config.system_prompt == DEFAULT_SYSTEM_PROMPT
+    assert config.notify.duration_ms == 8000
+
+
+def test_from_dict_prompt_style_explain():
+    from snipai.config import EXPLAIN_SYSTEM_PROMPT
+
+    config = from_dict({"prompt_style": "explain"})
+    assert config.prompt_style == "explain"
+    assert config.system_prompt == EXPLAIN_SYSTEM_PROMPT
+
+
+def test_from_dict_unknown_style_falls_back_to_short():
+    config = from_dict({"prompt_style": "verbose"})
+    assert config.prompt_style == "short"
+
+
+def test_from_dict_keeps_custom_prompt_without_style():
+    config = from_dict({"system_prompt": "Be a pirate."})
+    assert config.system_prompt == "Be a pirate."
+    assert config.prompt_style == "short"
+
+
+def test_save_config_writes_prompt_style_and_toast_duration(tmp_path: Path, monkeypatch):
+    from snipai.config import DEBUG_SYSTEM_PROMPT, apply_prompt_style
+
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    path = tmp_path / "config.yaml"
+    saved = apply_setup(from_dict({}), api_key="AIzaSyTESTKEY")
+    saved.prompt_style = "debug"
+    apply_prompt_style(saved)
+    saved.notify.duration_ms = 0
+    save_config(saved, path)
+    loaded = load_config(path)
+    assert loaded.prompt_style == "debug"
+    assert loaded.system_prompt == DEBUG_SYSTEM_PROMPT
+    assert loaded.notify.duration_ms == 0
+    text = path.read_text(encoding="utf-8")
+    assert "prompt_style: debug" in text
+    assert "duration_ms: 0" in text
+    assert "system_prompt:" not in text

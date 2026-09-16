@@ -198,3 +198,97 @@ def test_settings_saves_mouse_shortcut():
         assert updated.hotkey == "ctrl+shift+space"
     finally:
         ui.destroy()
+
+
+def test_toast_actions_and_until_click():
+    ui = ToastUI(NotifyConfig(duration_ms=0, position="bottom-right"))
+    seen: list[str] = []
+    try:
+        ui.show_toast(
+            "Answer",
+            "408",
+            actions=[("Retry", lambda: seen.append("retry")), ("Follow up", lambda: seen.append("fu"))],
+        )
+        ui.root.update()
+        assert ui._toast is not None
+        assert ui._after_id is None
+        buttons = []
+
+        def collect(widget) -> None:
+            if widget.winfo_class() == "Button":
+                buttons.append(widget)
+            for child in widget.winfo_children():
+                collect(child)
+
+        collect(ui._toast)
+        labels = [btn.cget("text") for btn in buttons]
+        assert "Retry" in labels
+        assert "Follow up" in labels
+        retry = next(btn for btn in buttons if btn.cget("text") == "Retry")
+        retry.invoke()
+        ui.root.update()
+        assert seen == ["retry"]
+        assert ui._toast is None
+    finally:
+        ui.destroy()
+
+
+def test_ask_window_follow_up_includes_snip():
+    from snipai.ui import show_ask_window
+
+    ui = ToastUI(NotifyConfig(duration_ms=50))
+    seen: dict[str, object] = {}
+
+    def on_submit(question: str, *, use_last_snip: bool = False) -> None:
+        seen["q"] = question
+        seen["snip"] = use_last_snip
+
+    try:
+        win = show_ask_window(ui, on_submit, follow_up=True, has_last_snip=True)
+        ui.root.update()
+        assert win._heading.cget("text") == "Follow up"
+        assert win._follow_var.get() is True
+        win._entry.insert("1.0", "Why that?")
+        win._submit()
+        ui.root.update()
+        assert seen.get("q") == "Why that?"
+        assert seen.get("snip") is True
+        assert not win.winfo_exists()
+    finally:
+        ui.destroy()
+
+
+def test_settings_saves_style_and_toast_duration():
+    from snipai.config import Config
+    from snipai.setup_ui import run_setup_wizard
+
+    ui = ToastUI(NotifyConfig(duration_ms=50))
+    cfg = Config(provider="mock", api_key="mock-key")
+    seen: dict[str, object] = {}
+
+    def start() -> None:
+        def tweak() -> None:
+            for child in ui.root.winfo_children():
+                save = getattr(child, "_save", None)
+                style = getattr(child, "_style_combo", None)
+                toast = getattr(child, "_toast_combo", None)
+                if callable(save) and style is not None and toast is not None:
+                    style.current(1)  # More explanation
+                    toast.current(4)  # Until I click
+                    save()
+                    return
+            ui.root.quit()
+
+        ui.root.after(200, tweak)
+        seen["cfg"] = run_setup_wizard(cfg, master=ui.root, running=True)
+        ui.root.quit()
+
+    try:
+        ui.root.after(20, start)
+        ui.root.mainloop()
+        updated = seen.get("cfg")
+        assert updated is not None
+        assert updated.prompt_style == "explain"
+        assert updated.notify.duration_ms == 0
+    finally:
+        ui.destroy()

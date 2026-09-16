@@ -38,6 +38,9 @@ def start_tray(
     on_quit: Callable[[], None],
     on_history: Callable[[], None] | None = None,
     on_ask: Callable[[], None] | None = None,
+    on_follow_up: Callable[[], None] | None = None,
+    on_pause: Callable[[], None] | None = None,
+    is_paused: Callable[[], bool] | None = None,
 ) -> Any:
     """Run the tray icon in a background thread. Returns the icon (call ``stop()``)."""
     import pystray
@@ -52,6 +55,26 @@ def start_tray(
                 on_ask()
         except Exception:
             log.exception("Tray Ask failed")
+
+    def follow_up(_icon: Any, _item: Any) -> None:
+        log.info("Tray: Follow up")
+        try:
+            if on_follow_up:
+                on_follow_up()
+        except Exception:
+            log.exception("Tray Follow up failed")
+
+    def pause(icon: Any, _item: Any) -> None:
+        log.info("Tray: Pause shortcuts")
+        try:
+            if on_pause:
+                on_pause()
+        except Exception:
+            log.exception("Tray Pause failed")
+        try:
+            icon.update_menu()
+        except Exception:
+            pass
 
     def history(_icon: Any, _item: Any) -> None:
         log.info("Tray: Last answers")
@@ -92,8 +115,18 @@ def start_tray(
     items = []
     if on_ask is not None:
         items.append(MenuItem("Ask a question", ask))
+    if on_follow_up is not None:
+        items.append(MenuItem("Follow up on last snip", follow_up))
     if on_history is not None:
         items.append(MenuItem("Last answers", history))
+    if on_pause is not None:
+        items.append(
+            MenuItem(
+                "Pause shortcuts",
+                pause,
+                checked=lambda item: bool(is_paused()) if is_paused else False,
+            )
+        )
     items.extend(
         [
             MenuItem("Settings (key, model, shortcuts)", settings, default=True),
