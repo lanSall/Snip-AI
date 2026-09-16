@@ -1,6 +1,6 @@
 """Snip AI: screenshot a screen, solve it with a vision model, notify with the answer."""
 
-__version__ = "0.1.9"
+__version__ = "0.2.0"
 
 
 class SnipError(Exception):

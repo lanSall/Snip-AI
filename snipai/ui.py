@@ -102,6 +102,7 @@ class ToastUI:
         *,
         duration_ms: int | None = None,
         on_click: Callable[[], None] | None = None,
+        actions: list[tuple[str, Callable[[], None]]] | None = None,
     ) -> None:
         if not self.notify.enabled:
             log.info("%s: %s", title, body)
@@ -130,33 +131,47 @@ class ToastUI:
         inner = tk.Frame(frame, bg=BG, padx=12, pady=10)
         inner.pack(fill="both", expand=True)
 
-        tk.Label(
+        font_bold = ("Segoe UI", 9, "bold") if sys.platform == "win32" else ("sans-serif", 9, "bold")
+        font_body = ("Segoe UI", 10) if sys.platform == "win32" else ("sans-serif", 10)
+        font_small = ("Segoe UI", 8) if sys.platform == "win32" else ("sans-serif", 8)
+
+        title_lbl = tk.Label(
             inner,
             text=title,
             bg=BG,
             fg=ACCENT,
-            font=("Segoe UI", 9, "bold") if sys.platform == "win32" else ("sans-serif", 9, "bold"),
+            font=font_bold,
             anchor="w",
-        ).pack(fill="x")
-        tk.Label(
+        )
+        title_lbl.pack(fill="x")
+        body_lbl = tk.Label(
             inner,
             text=body,
             bg=BG,
             fg=FG,
-            font=("Segoe UI", 10) if sys.platform == "win32" else ("sans-serif", 10),
+            font=font_body,
             wraplength=TOAST_WIDTH - 24,
             justify="left",
             anchor="w",
-        ).pack(fill="x", pady=(4, 0))
-        hint = "Copied · click for full answer" if on_click else "click to dismiss"
-        tk.Label(
+        )
+        body_lbl.pack(fill="x", pady=(4, 0))
+        if actions:
+            hint = "Copied · click the text for the full answer"
+        elif on_click:
+            hint = "Copied · click for full answer"
+        elif duration > 0:
+            hint = "click to dismiss"
+        else:
+            hint = "stays until you click"
+        hint_lbl = tk.Label(
             inner,
             text=hint,
             bg=BG,
             fg=MUTED,
-            font=("Segoe UI", 8) if sys.platform == "win32" else ("sans-serif", 8),
+            font=font_small,
             anchor="w",
-        ).pack(fill="x", pady=(6, 0))
+        )
+        hint_lbl.pack(fill="x", pady=(6, 0))
 
         def handle(_event: object | None = None) -> None:
             self._close_toast()
@@ -171,7 +186,38 @@ class ToastUI:
             for child in widget.winfo_children():
                 bind_click(child)
 
-        bind_click(win)
+        bind_click(title_lbl)
+        bind_click(body_lbl)
+        bind_click(hint_lbl)
+
+        if actions:
+            row = tk.Frame(inner, bg=BG)
+            row.pack(fill="x", pady=(8, 0))
+            for label, callback in actions:
+
+                def run_action(cb: Callable[[], None] = callback) -> None:
+                    self._close_toast()
+                    try:
+                        cb()
+                    except Exception:
+                        log.exception("Toast action failed")
+
+                tk.Button(
+                    row,
+                    text=label,
+                    command=run_action,
+                    bg="#2a2f38",
+                    fg=FG,
+                    activebackground="#3a404a",
+                    activeforeground=FG,
+                    highlightthickness=0,
+                    bd=0,
+                    relief="flat",
+                    font=font_small,
+                    padx=8,
+                    pady=3,
+                    cursor="hand2",
+                ).pack(side="left", padx=(0, 6))
 
         win.update_idletasks()
         self._place(win)
@@ -288,13 +334,28 @@ def _force_activate(win: tk.Misc) -> None:
 
 def show_ask_window(
     ui: ToastUI,
-    on_submit: Callable[[str], None],
+    on_submit: Callable[..., None],
     window: tk.Toplevel | None = None,
+    *,
+    follow_up: bool = False,
+    has_last_snip: bool = False,
 ) -> tk.Toplevel:
     """Small toast-styled window to type a question. Steals focus (unlike toasts)."""
     if window is not None:
         try:
             if window.winfo_exists():
+                follow_var = getattr(window, "_follow_var", None)
+                if follow_up and follow_var is not None:
+                    try:
+                        follow_var.set(True)
+                    except tk.TclError:
+                        pass
+                heading = getattr(window, "_heading", None)
+                if heading is not None and follow_up:
+                    try:
+                        heading.configure(text="Follow up")
+                    except tk.TclError:
+                        pass
                 _force_activate(window)
                 entry = getattr(window, "_entry", None)
                 if entry is not None:
@@ -354,8 +415,20 @@ def show_ask_window(
     inner = tk.Frame(frame, bg=BG, padx=12, pady=10)
     inner.pack(fill="both", expand=True)
 
-    tk.Label(inner, text="Ask", bg=BG, fg=ACCENT, font=font_bold, anchor="w").pack(fill="x")
-    hint_var = tk.StringVar(value="Type a question · Enter to ask · Esc to close")
+    heading = tk.Label(
+        inner,
+        text="Follow up" if follow_up else "Ask",
+        bg=BG,
+        fg=ACCENT,
+        font=font_bold,
+        anchor="w",
+    )
+    heading.pack(fill="x")
+    hint_var = tk.StringVar(
+        value="Ask about the last snip · Enter to send · Esc to close"
+        if follow_up
+        else "Type a question · Enter to ask · Esc to close"
+    )
     tk.Label(
         inner,
         textvariable=hint_var,
@@ -389,12 +462,29 @@ def show_ask_window(
     )
     text.pack(fill="both", expand=True)
 
+    follow_var = tk.BooleanVar(value=bool(follow_up and has_last_snip))
+    if has_last_snip:
+        tk.Checkbutton(
+            inner,
+            text="Include last snip",
+            variable=follow_var,
+            bg=BG,
+            fg=FG,
+            selectcolor="#111316",
+            activebackground=BG,
+            activeforeground=FG,
+            highlightthickness=0,
+            font=font_small,
+            anchor="w",
+        ).pack(fill="x", pady=(6, 0))
+
     closed = {"done": False}
 
     def finish(question: str | None) -> None:
         if closed["done"]:
             return
         closed["done"] = True
+        use_snip = bool(follow_var.get()) if has_last_snip else False
         try:
             win.grab_release()
         except tk.TclError:
@@ -404,7 +494,10 @@ def show_ask_window(
         except tk.TclError:
             pass
         if question is not None:
-            on_submit(question)
+            try:
+                on_submit(question, use_last_snip=use_snip)
+            except TypeError:
+                on_submit(question)
 
     def submit(_event: object | None = None) -> str:
         question = text.get("1.0", "end").strip()
@@ -457,6 +550,8 @@ def show_ask_window(
     win._entry = text  # type: ignore[attr-defined]
     win._submit = submit  # type: ignore[attr-defined]
     win._cancel = cancel  # type: ignore[attr-defined]
+    win._follow_var = follow_var  # type: ignore[attr-defined]
+    win._heading = heading  # type: ignore[attr-defined]
 
     win.update_idletasks()
     ui._place_ask(win)

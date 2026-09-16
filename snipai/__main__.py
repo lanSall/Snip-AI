@@ -155,7 +155,7 @@ class _HeadlessUI:
         fn()
 
     def show_toast(
-        self, title: str, body: str, *, duration_ms: int | None = None, on_click=None
+        self, title: str, body: str, *, duration_ms: int | None = None, on_click=None, actions=None
     ) -> None:
         return None
 
@@ -216,6 +216,9 @@ def _cmd_with_config(command: str, args: argparse.Namespace) -> int:
                 on_settings=app.open_settings,
                 on_history=app.open_history,
                 on_ask=app.open_ask,
+                on_follow_up=app.open_follow_up,
+                on_pause=app.toggle_pause,
+                is_paused=app.is_paused,
                 on_quit=on_quit,
             )
         try:
@@ -251,7 +254,7 @@ def _cmd_with_config(command: str, args: argparse.Namespace) -> int:
             answer = app.solve_png(png, notify=notify)
             print(answer)
             if notify:
-                ui.root.after(config.notify.duration_ms + 200, ui.root.quit)
+                ui.root.after(_toast_hold_ms(config) + 200, ui.root.quit)
                 ui.mainloop()
         finally:
             ui.destroy()
@@ -274,13 +277,18 @@ def _cmd_with_config(command: str, args: argparse.Namespace) -> int:
             answer = app.solve_png(png, notify=notify)
             print(answer)
             if notify:
-                ui.root.after(config.notify.duration_ms + 200, ui.root.quit)
+                ui.root.after(_toast_hold_ms(config) + 200, ui.root.quit)
                 ui.mainloop()
         finally:
             ui.destroy()
         return 0
 
     raise SnipError(f"Unknown command: {command}")
+
+
+def _toast_hold_ms(config) -> int:
+    ms = int(config.notify.duration_ms)
+    return ms if ms > 0 else 60_000
 
 
 def _make_history() -> AnswerHistory:

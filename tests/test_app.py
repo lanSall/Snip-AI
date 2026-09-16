@@ -16,10 +16,11 @@ class FakeUI:
         fn()
 
     def show_toast(
-        self, title: str, body: str, *, duration_ms: int | None = None, on_click=None
+        self, title: str, body: str, *, duration_ms: int | None = None, on_click=None, actions=None
     ) -> None:
         self.toasts.append((title, body))
         self.last_on_click = on_click
+        self.last_actions = actions
 
 
 def test_app_solve_png_notifies_and_copies(tiny_png: bytes, monkeypatch):
@@ -48,6 +49,8 @@ def test_app_solve_png_notifies_and_copies(tiny_png: bytes, monkeypatch):
     assert hist.entries[0].headline == "408"
     assert "17×24" in hist.entries[0].full
     assert callable(ui.last_on_click)
+    labels = [label for label, _cb in ui.last_actions]
+    assert labels == ["Retry", "Follow up"]
 
 
 def test_cli_solve_no_notify(math_problem_png: Path, tmp_path: Path, capsys, monkeypatch):
@@ -258,6 +261,7 @@ def test_app_solve_question_notifies_and_copies(monkeypatch):
     assert ui.toasts[0][0] == "Answer"
     assert "4" in copied["text"]
     assert hist.entries[0].headline == "4"
+    assert ui.last_actions is None
 
 
 def test_ask_job_sniperror_toast(monkeypatch):
@@ -268,7 +272,7 @@ def test_ask_job_sniperror_toast(monkeypatch):
             queued.append(fn)
 
         def show_toast(
-            self, title: str, body: str, *, duration_ms: int | None = None, on_click=None
+            self, title: str, body: str, *, duration_ms: int | None = None, on_click=None, actions=None
         ) -> None:
             self.seen = (title, body)
 
@@ -290,7 +294,7 @@ def test_sniperror_toast_survives_except_block(monkeypatch):
             queued.append(fn)
 
         def show_toast(
-            self, title: str, body: str, *, duration_ms: int | None = None, on_click=None
+            self, title: str, body: str, *, duration_ms: int | None = None, on_click=None, actions=None
         ) -> None:
             self.seen = (title, body)
 
@@ -303,3 +307,115 @@ def test_sniperror_toast_survives_except_block(monkeypatch):
         fn()
     assert ui.seen[0] == "snip-ai"
     assert "No API key" in ui.seen[1]
+
+
+def test_retry_last_without_snip_toasts():
+    ui = FakeUI()
+    app = SnipApp(Config(provider="mock", clipboard=False), MockSolver(), ui)
+    app.retry_last()
+    assert any("Snip something first" in body for _title, body in ui.toasts)
+
+
+def test_open_follow_up_without_snip_toasts():
+    ui = FakeUI()
+    app = SnipApp(Config(provider="mock", clipboard=False), MockSolver(), ui)
+    app.open_follow_up()
+    assert any("Snip something first" in body for _title, body in ui.toasts)
+
+
+def test_retry_job_reuses_last_png(tiny_png: bytes, monkeypatch):
+    monkeypatch.setattr("snipai.app.copy_text", lambda text: True)
+    ui = FakeUI()
+    solver = MockSolver("ANSWER: 1\nWHY: first.")
+    seen: list[bytes] = []
+    original = solver.solve
+
+    def wrap(png: bytes) -> str:
+        seen.append(png)
+        return original(png)
+
+    solver.solve = wrap  # type: ignore[method-assign]
+    app = SnipApp(Config(provider="mock", clipboard=False), solver, ui)
+    app.solve_png(tiny_png, notify=False)
+    solver.reply = "ANSWER: 2\nWHY: retry."
+    app._retry_job()
+    assert seen == [tiny_png, tiny_png]
+    assert app._last_answer.startswith("ANSWER: 2")
+
+
+def test_solve_follow_up_uses_last_snip(tiny_png: bytes, monkeypatch):
+    monkeypatch.setattr("snipai.app.copy_text", lambda text: True)
+    ui = FakeUI()
+    solver = MockSolver("ANSWER: 9\nWHY: follow.")
+    app = SnipApp(Config(provider="mock", clipboard=False), solver, ui)
+    app.solve_png(tiny_png, notify=False)
+    answer = app.solve_follow_up("Why 9?", notify=True)
+    assert "9" in answer
+    assert solver.last_follow_up == "Why 9?"
+    labels = [label for label, _cb in ui.last_actions]
+    assert "Retry" in labels and "Follow up" in labels
+
+
+def test_on_ask_submit_routes_follow_up():
+    ui = FakeUI()
+    app = SnipApp(Config(provider="mock", clipboard=False), MockSolver(), ui)
+    seen: list[tuple[str, str]] = []
+    app._start_follow_up_job = lambda q: seen.append(("fu", q))  # type: ignore[method-assign]
+    app._start_ask_job = lambda q: seen.append(("ask", q))  # type: ignore[method-assign]
+    app._on_ask_submit("about the snip", use_last_snip=True)
+    app._on_ask_submit("plain ask", use_last_snip=False)
+    assert seen == [("fu", "about the snip"), ("ask", "plain ask")]
+
+
+def test_pause_unbinds_capture_keeps_settings(monkeypatch):
+    seen: list[set[str]] = []
+
+    def fake_start(bindings):
+        seen.append(set(bindings))
+
+        class Listener:
+            def stop(self) -> None:
+                return None
+
+        return Listener()
+
+    monkeypatch.setattr("snipai.app.start_hotkeys", fake_start)
+    ui = FakeUI()
+    app = SnipApp(Config(), MockSolver(), ui)
+    app._hotkeys_running = True
+    app._start_hotkey_listener()
+    assert "ctrl+shift+space" in seen[-1]
+    assert "ctrl+shift+a" in seen[-1]
+    assert "ctrl+shift+slash" in seen[-1]
+    app.toggle_pause()
+    assert app.is_paused() is True
+    assert seen[-1] == {"ctrl+shift+slash"}
+    assert any("paused" in body.lower() for _title, body in ui.toasts)
+    app.toggle_pause()
+    assert app.is_paused() is False
+    assert "ctrl+shift+space" in seen[-1]
+    assert "ctrl+shift+a" in seen[-1]
+    assert any("Shortcuts on" in body for _title, body in ui.toasts)
+
+
+def test_open_settings_copies_toast_duration(tmp_path: Path, monkeypatch):
+    from snipai.config import NotifyConfig, apply_setup, from_dict, save_config
+
+    path = tmp_path / "config.yaml"
+    cfg = apply_setup(from_dict({}), api_key="AIza-old", provider="gemini")
+    save_config(cfg, path)
+
+    def fake_wizard(config, **kwargs):
+        updated = apply_setup(config, api_key="AIza-old", provider="gemini", model=config.model)
+        updated.notify = NotifyConfig(duration_ms=0)
+        updated.prompt_style = "explain"
+        return updated
+
+    monkeypatch.setattr("snipai.setup_ui.run_setup_wizard", fake_wizard)
+    ui = FakeUI()
+    ui.notify = cfg.notify
+    app = SnipApp(cfg, MockSolver(), ui, config_path=path)
+    app.open_settings()
+    assert app.config.notify.duration_ms == 0
+    assert app.config.prompt_style == "explain"
+    assert ui.notify.duration_ms == 0

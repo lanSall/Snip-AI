@@ -240,3 +240,58 @@ def test_openai_ask_requires_key(monkeypatch):
         assert False, "expected SnipError"
     except SnipError as exc:
         assert "API key" in str(exc)
+
+
+def test_mock_solver_follow_up(tiny_png: bytes):
+    solver = MockSolver("ANSWER: 7\nWHY: follow.")
+    assert "7" in solver.follow_up(tiny_png, "ANSWER: 1", "Why?")
+    assert solver.last_follow_up == "Why?"
+
+
+def test_mock_solver_follow_up_needs_png():
+    try:
+        MockSolver().follow_up(b"", "prev", "Why?")
+        assert False, "expected SnipError"
+    except SnipError as exc:
+        assert "last snip" in str(exc).lower()
+
+
+def test_openai_follow_up_sends_image_and_question(tiny_png: bytes):
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.read())
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "ANSWER: 8\nWHY: follow."}}]},
+        )
+
+    solver = OpenAICompatibleSolver(
+        Config(provider="openai", api_key="sk-test", model="gpt-4o"),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    answer = solver.follow_up(tiny_png, "ANSWER: 1\nWHY: first.", "Why that?")
+    assert answer.startswith("ANSWER: 8")
+    blob = json.dumps(captured["body"])
+    assert "Why that?" in blob
+    assert "Previous answer" in blob
+    assert "image_url" in blob
+    assert captured["body"]["max_tokens"] == 400
+
+
+def test_explain_style_uses_longer_max_tokens(tiny_png: bytes):
+    from snipai.config import apply_prompt_style
+
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.read())
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ANSWER: 1"}}]})
+
+    cfg = apply_prompt_style(Config(provider="openai", api_key="sk-test", model="gpt-4o", prompt_style="explain"))
+    solver = OpenAICompatibleSolver(cfg, client=httpx.Client(transport=httpx.MockTransport(handler)))
+    solver.solve(tiny_png)
+    assert captured["body"]["max_tokens"] == 800
+    user = captured["body"]["messages"][1]["content"]
+    texts = [part.get("text", "") for part in user if part.get("type") == "text"]
+    assert any("key steps" in text for text in texts)

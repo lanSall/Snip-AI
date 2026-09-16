@@ -31,6 +31,7 @@ class UserInterface(Protocol):
         *,
         duration_ms: int | None = None,
         on_click: Any = None,
+        actions: Any = None,
     ) -> None: ...
 
     def mainloop(self) -> None: ...
@@ -60,6 +61,9 @@ class SnipApp:
         self._ask_win = None
         self._listener = None
         self._hotkeys_running = False
+        self._paused = False
+        self._last_png: bytes | None = None
+        self._last_answer = ""
 
     def capture_screen(self) -> None:
         self._start_job("screen")
@@ -68,20 +72,68 @@ class SnipApp:
         self._start_job("region")
 
     def solve_png(self, png: bytes, *, notify: bool = True) -> str:
-        return self._deliver(self.solver.solve(png), notify=notify)
+        if png:
+            self._last_png = png
+        return self._deliver(self.solver.solve(png), notify=notify, snip=True)
 
     def solve_question(self, question: str, *, notify: bool = True) -> str:
         return self._deliver(self.solver.ask(question), notify=notify)
 
-    def _deliver(self, answer: str, *, notify: bool) -> str:
+    def solve_follow_up(self, question: str, *, notify: bool = True) -> str:
+        if not self._last_png:
+            raise SnipError("Snip something first.")
+        return self._deliver(
+            self.solver.follow_up(self._last_png, self._last_answer, question),
+            notify=notify,
+            snip=True,
+        )
+
+    def retry_last(self) -> None:
+        if not self._last_png:
+            self._toast("snip-ai", "Snip something first.", duration_ms=2500)
+            return
+        self._start_retry_job()
+
+    def open_follow_up(self) -> None:
+        if not self._last_png:
+            self._toast("snip-ai", "Snip something first.", duration_ms=2500)
+            return
+        log.info("Follow-up requested")
+        self.ui.schedule(lambda: self._open_ask_ui(follow_up=True))
+
+    def toggle_pause(self) -> None:
+        self._paused = not self._paused
+        if self._hotkeys_running:
+            self._start_hotkey_listener()
+        if self._paused:
+            self._toast("snip-ai", "Shortcuts paused", duration_ms=2500)
+        else:
+            self._toast("snip-ai", "Shortcuts on", duration_ms=2500)
+
+    def is_paused(self) -> bool:
+        return self._paused
+
+    def _deliver(self, answer: str, *, notify: bool, snip: bool = False) -> str:
         headline, full = parse_solution(answer)
         text = full or answer
+        self._last_answer = text
         entry = self.history.add(headline, text)
         if self.config.clipboard:
             copy_text(text)
         if notify:
             body = toast_body(answer, max_chars=self.config.notify.max_chars)
-            self._toast("Answer", body, on_click=lambda e=entry: self.open_history(e.id))
+            actions = None
+            if snip:
+                actions = [
+                    ("Retry", self.retry_last),
+                    ("Follow up", self.open_follow_up),
+                ]
+            self._toast(
+                "Answer",
+                body,
+                on_click=lambda e=entry: self.open_history(e.id),
+                actions=actions,
+            )
         log.info("Answer: %s", headline)
         return answer
 
@@ -108,9 +160,9 @@ class SnipApp:
     def open_ask(self) -> None:
         """Hotkey and tray: small toast-like window to type a question."""
         log.info("Ask requested")
-        self.ui.schedule(self._open_ask_ui)
+        self.ui.schedule(lambda: self._open_ask_ui(follow_up=False))
 
-    def _open_ask_ui(self) -> None:
+    def _open_ask_ui(self, follow_up: bool = False) -> None:
         from snipai.ui import show_ask_window
 
         root = getattr(self.ui, "root", None)
@@ -121,14 +173,19 @@ class SnipApp:
                 self.ui,
                 on_submit=self._on_ask_submit,
                 window=self._ask_win,
+                follow_up=follow_up,
+                has_last_snip=bool(self._last_png),
             )
         except Exception as exc:
             log.exception("Ask window failed")
             self._toast("snip-ai", f"Could not open Ask: {exc}", duration_ms=4000)
 
-    def _on_ask_submit(self, question: str) -> None:
+    def _on_ask_submit(self, question: str, *, use_last_snip: bool = False) -> None:
         self._ask_win = None
-        self._start_ask_job(question)
+        if use_last_snip:
+            self._start_follow_up_job(question)
+        else:
+            self._start_ask_job(question)
 
     def open_settings(self) -> None:
         """Hotkey and tray both land here; the dialog must run on the Tk thread."""
@@ -153,6 +210,8 @@ class SnipApp:
                 save_config(updated, self.config_path)
                 self.config = load_config(self.config_path)
                 self.solver = make_solver(self.config)
+                if hasattr(self.ui, "notify"):
+                    self.ui.notify = self.config.notify
                 self._toast("snip-ai", f"Using {self.config.model}", duration_ms=2500)
         except Exception as exc:
             log.exception("Settings failed")
@@ -205,6 +264,10 @@ class SnipApp:
             self._stop_hotkeys()
 
     def _bindings(self) -> dict:
+        if self._paused:
+            if self.config.settings_hotkey:
+                return {self.config.settings_hotkey: self.open_settings}
+            return {}
         bindings = {
             self.config.hotkey: self.capture_screen,
             self.config.region_hotkey: self.capture_region,
@@ -217,8 +280,11 @@ class SnipApp:
 
     def _start_hotkey_listener(self) -> None:
         self._stop_hotkeys()
+        bindings = self._bindings()
+        if not bindings:
+            return
         try:
-            self._listener = start_hotkeys(self._bindings())
+            self._listener = start_hotkeys(bindings)
         except SnipError as exc:
             log.warning("Could not start shortcuts: %s", exc)
             self._toast("snip-ai", str(exc), duration_ms=4000)
@@ -240,11 +306,12 @@ class SnipApp:
         body: str,
         duration_ms: int | None = None,
         on_click: Any = None,
+        actions: Any = None,
     ) -> None:
         # Bind values in default args so Python 3.13 cannot clear `exc` before the toast runs.
         self.ui.schedule(
-            lambda t=title, b=body, d=duration_ms, c=on_click: self.ui.show_toast(
-                t, b, duration_ms=d, on_click=c
+            lambda t=title, b=body, d=duration_ms, c=on_click, a=actions: self.ui.show_toast(
+                t, b, duration_ms=d, on_click=c, actions=a
             )
         )
 
@@ -265,6 +332,58 @@ class SnipApp:
             self._busy = True
         thread = threading.Thread(target=self._ask_job, args=(question,), daemon=True)
         thread.start()
+
+    def _start_follow_up_job(self, question: str) -> None:
+        with self._lock:
+            if self._busy:
+                self._toast("snip-ai", "Still solving…", duration_ms=2000)
+                return
+            self._busy = True
+        thread = threading.Thread(target=self._follow_up_job, args=(question,), daemon=True)
+        thread.start()
+
+    def _start_retry_job(self) -> None:
+        with self._lock:
+            if self._busy:
+                self._toast("snip-ai", "Still solving…", duration_ms=2000)
+                return
+            self._busy = True
+        thread = threading.Thread(target=self._retry_job, daemon=True)
+        thread.start()
+
+    def _follow_up_job(self, question: str) -> None:
+        try:
+            self._toast("snip-ai", "Solving…", duration_ms=2500)
+            self.solve_follow_up(question, notify=True)
+        except SnipError as exc:
+            message = str(exc)
+            log.warning("%s", message)
+            self._toast("snip-ai", message, duration_ms=5000)
+        except Exception:
+            log.exception("Follow-up failed")
+            self._toast("snip-ai", "Something went wrong. See the log.", duration_ms=5000)
+        finally:
+            with self._lock:
+                self._busy = False
+
+    def _retry_job(self) -> None:
+        try:
+            png = self._last_png
+            if not png:
+                self._toast("snip-ai", "Snip something first.", duration_ms=2500)
+                return
+            self._toast("snip-ai", "Retrying…", duration_ms=2500)
+            self.solve_png(png, notify=True)
+        except SnipError as exc:
+            message = str(exc)
+            log.warning("%s", message)
+            self._toast("snip-ai", message, duration_ms=5000)
+        except Exception:
+            log.exception("Retry failed")
+            self._toast("snip-ai", "Something went wrong. See the log.", duration_ms=5000)
+        finally:
+            with self._lock:
+                self._busy = False
 
     def _ask_job(self, question: str) -> None:
         try:
