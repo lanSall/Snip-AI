@@ -279,3 +279,41 @@ def test_save_config_writes_prompt_style_and_toast_duration(tmp_path: Path, monk
     assert "prompt_style: debug" in text
     assert "duration_ms: 0" in text
     assert "system_prompt:" not in text
+
+
+def test_from_dict_custom_keeps_system_prompt():
+    config = from_dict({"prompt_style": "custom", "system_prompt": "Always answer in Spanish."})
+    assert config.prompt_style == "custom"
+    assert config.system_prompt == "Always answer in Spanish."
+
+
+def test_from_dict_custom_empty_prompt_falls_back():
+    from snipai.config import DEFAULT_SYSTEM_PROMPT
+
+    config = from_dict({"prompt_style": "custom", "system_prompt": "  "})
+    assert config.prompt_style == "custom"
+    assert config.system_prompt == DEFAULT_SYSTEM_PROMPT
+
+
+def test_apply_prompt_style_does_not_wipe_custom():
+    from snipai.config import apply_prompt_style
+
+    config = from_dict({"prompt_style": "custom", "system_prompt": "Be a pirate."})
+    apply_prompt_style(config)
+    assert config.prompt_style == "custom"
+    assert config.system_prompt == "Be a pirate."
+
+
+def test_save_config_writes_custom_system_prompt(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    path = tmp_path / "config.yaml"
+    saved = apply_setup(from_dict({}), api_key="AIzaSyTESTKEY")
+    saved.prompt_style = "custom"
+    saved.system_prompt = "Reply with only the answer."
+    save_config(saved, path)
+    loaded = load_config(path)
+    assert loaded.prompt_style == "custom"
+    assert loaded.system_prompt == "Reply with only the answer."
+    text = path.read_text(encoding="utf-8")
+    assert "prompt_style: custom" in text
+    assert "Reply with only the answer." in text

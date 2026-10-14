@@ -56,7 +56,7 @@ Windows PowerShell: run `.\Start.bat` from this folder if you want a console. To
 3. A tiny **Solving…** toast appears, then the answer. Click the toast for the full write-up. On a snip, use **Retry** (same screenshot again) or **Follow up** (type a question about that snip).
 4. Paste if you want — it is also on the clipboard. Older answers: tray **Last answers** (keeps the last 10).
 
-Change your key, model, or shortcuts anytime: tray **Settings**, or **Ctrl+Shift+/**. In Settings you can also pick **Answer style** (short, more explanation, or debug this error) and **Toast stays**. Click **Change** next to a shortcut, then press a key combo or a **mouse side / middle button**. Left click cannot be a shortcut (it would fire all the time). After Save, the new shortcuts work immediately.
+Change your key, model, or shortcuts anytime: tray **Settings**, or **Ctrl+Shift+/**. In Settings you can also pick **Answer style** (short, more explanation, debug this error, or **write my own** prompt) and **Toast stays**. Click **Change** next to a shortcut, then press a key combo or a **mouse side / middle button**. Left click cannot be a shortcut (it would fire all the time). After Save, the new shortcuts work immediately.
 
 Other commands:
 

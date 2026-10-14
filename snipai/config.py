@@ -88,6 +88,7 @@ PROMPT_STYLE_CHOICES = (
     ("short", "Short answer"),
     ("explain", "More explanation"),
     ("debug", "Debug this error"),
+    ("custom", "Write my own"),
 )
 
 PROMPT_STYLE_SNIP = {
@@ -107,7 +108,7 @@ TOAST_DURATION_CHOICES = (
 
 def normalize_prompt_style(style: str) -> str:
     name = (style or "short").strip().lower()
-    if name in PROMPT_STYLE_SNIP:
+    if name in PROMPT_STYLE_SNIP or name == "custom":
         return name
     return "short"
 
@@ -115,17 +116,25 @@ def normalize_prompt_style(style: str) -> str:
 def apply_prompt_style(config: Config) -> Config:
     style = normalize_prompt_style(getattr(config, "prompt_style", "short"))
     config.prompt_style = style
-    config.system_prompt = PROMPT_STYLE_SNIP[style]
+    if style != "custom":
+        config.system_prompt = PROMPT_STYLE_SNIP[style]
+    elif not (config.system_prompt or "").strip():
+        config.system_prompt = DEFAULT_SYSTEM_PROMPT
     return config
 
 
 def ask_system_prompt(config: Config) -> str:
     style = normalize_prompt_style(getattr(config, "prompt_style", "short"))
+    if style == "custom":
+        text = (getattr(config, "system_prompt", "") or "").strip()
+        return text or ASK_SYSTEM_PROMPTS["short"]
     return ASK_SYSTEM_PROMPTS[style]
 
 
 def snip_user_prompt(config: Config) -> str:
     style = normalize_prompt_style(getattr(config, "prompt_style", "short"))
+    if style == "custom":
+        return "Here is a screenshot. Follow the system instructions."
     if style == "explain":
         return (
             "Solve the problem shown in this screenshot. "
@@ -139,6 +148,23 @@ def snip_user_prompt(config: Config) -> str:
     return (
         "Solve the problem shown in this screenshot. "
         "Put ANSWER on the first line and WHY on the second."
+    )
+
+
+def follow_up_user_prompt(config: Config, previous: str, question: str) -> str:
+    prev = (previous or "").strip() or "(none)"
+    text = (question or "").strip()
+    if normalize_prompt_style(getattr(config, "prompt_style", "short")) == "custom":
+        return (
+            "This is the same screenshot as before.\n\n"
+            f"Previous answer:\n{prev[:2000]}\n\n"
+            f"Follow-up: {text}"
+        )
+    return (
+        "This is the same screenshot as before.\n\n"
+        f"Previous answer:\n{prev[:2000]}\n\n"
+        f"Follow-up: {text}\n\n"
+        "Answer the follow-up. Put ANSWER on the first line and WHY on the second."
     )
 
 
@@ -369,7 +395,10 @@ def from_dict(raw: dict[str, Any] | None) -> Config:
         mock_reply=str(data.get("mock_reply", defaults.mock_reply)),
         notify=_notify_from_dict(data.get("notify")),
     )
-    if "prompt_style" in data or "system_prompt" not in data:
+    if config.prompt_style == "custom":
+        if not config.system_prompt.strip():
+            config.system_prompt = DEFAULT_SYSTEM_PROMPT
+    elif "prompt_style" in data or "system_prompt" not in data:
         apply_prompt_style(config)
     return config
 
@@ -509,7 +538,7 @@ clipboard: true           # copy the full answer so you can paste it
 save_shots: false
 shots_dir: ""
 max_image_width: 1600
-prompt_style: short       # short | explain | debug  (set from Settings)
+prompt_style: short       # short | explain | debug | custom  (set from Settings)
 
 notify:
   enabled: true
@@ -559,7 +588,7 @@ def save_config(config: Config, path: Path | None = None) -> Path:
         "notify": asdict(config.notify),
     }
     style = normalize_prompt_style(config.prompt_style)
-    if config.system_prompt != PROMPT_STYLE_SNIP.get(style, DEFAULT_SYSTEM_PROMPT):
+    if style == "custom" or config.system_prompt != PROMPT_STYLE_SNIP.get(style, DEFAULT_SYSTEM_PROMPT):
         data["system_prompt"] = config.system_prompt
     if config.mock_reply:
         data["mock_reply"] = config.mock_reply
