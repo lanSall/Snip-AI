@@ -8,8 +8,10 @@ import webbrowser
 from tkinter import ttk
 
 from snipai.config import (
+    DEFAULT_SYSTEM_PROMPT,
     KEY_SIGNUP_URLS,
     PROMPT_STYLE_CHOICES,
+    PROMPT_STYLE_SNIP,
     TOAST_DURATION_CHOICES,
     Config,
     apply_prompt_style,
@@ -153,7 +155,7 @@ def run_setup_wizard(
     style_ids = [sid for sid, _label in PROMPT_STYLE_CHOICES]
     style_labels = [label for _sid, label in PROMPT_STYLE_CHOICES]
     style_combo = ttk.Combobox(frame, values=style_labels, state="readonly", font=_FONT)
-    style_combo.pack(fill="x", pady=(4, 12))
+    style_combo.pack(fill="x", pady=(4, 4))
     try:
         style_combo.current(style_ids.index(normalize_prompt_style(config.prompt_style)))
     except ValueError:
@@ -164,6 +166,78 @@ def run_setup_wizard(
             return style_ids[style_combo.current()]
         except Exception:
             return "short"
+
+    prompt_holder = tk.Frame(frame, bg=BG)
+    tk.Label(prompt_holder, text="Your prompt", bg=BG, fg=FG, font=_FONT, anchor="w").pack(fill="x")
+    tk.Label(
+        prompt_holder,
+        text="Sent with every snip and typed question. Edit this to tell the AI how to answer.",
+        bg=BG,
+        fg=MUTED,
+        font=_FONT_SMALL,
+        anchor="w",
+        wraplength=420,
+        justify="left",
+    ).pack(fill="x", pady=(2, 4))
+    prompt_box = tk.Frame(prompt_holder, bg=ACCENT, padx=1, pady=1)
+    prompt_box.pack(fill="both", expand=True, pady=(0, 12))
+    prompt_scroll = tk.Scrollbar(prompt_box)
+    prompt_text = tk.Text(
+        prompt_box,
+        height=5,
+        wrap="word",
+        bg=ENTRY_BG,
+        fg=FG,
+        insertbackground=FG,
+        relief="flat",
+        borderwidth=0,
+        highlightthickness=0,
+        font=_FONT,
+        padx=8,
+        pady=6,
+        undo=True,
+        yscrollcommand=prompt_scroll.set,
+    )
+    prompt_scroll.configure(command=prompt_text.yview)
+    prompt_scroll.pack(side="right", fill="y")
+    prompt_text.pack(side="left", fill="both", expand=True)
+    prompt_text.insert("1.0", config.system_prompt or DEFAULT_SYSTEM_PROMPT)
+
+    opened_as_custom = normalize_prompt_style(config.prompt_style) == "custom"
+    custom_ready = {"done": opened_as_custom}
+    last_preset = {
+        "id": normalize_prompt_style(config.prompt_style) if not opened_as_custom else "short"
+    }
+
+    def show_custom_prompt(visible: bool) -> None:
+        if visible:
+            prompt_holder.pack(fill="x", after=style_combo)
+        else:
+            prompt_holder.pack_forget()
+        try:
+            root.update_idletasks()
+            width = max(root.winfo_width(), 520)
+            req_h = root.winfo_reqheight()
+            screen_h = root.winfo_screenheight()
+            height = min(req_h, max(420, screen_h - 80))
+            root.geometry(f"{width}x{height}")
+        except tk.TclError:
+            pass
+
+    def on_style_change(_event: object | None = None) -> None:
+        style = selected_style()
+        if style == "custom":
+            if not custom_ready["done"]:
+                seed = PROMPT_STYLE_SNIP.get(last_preset["id"], DEFAULT_SYSTEM_PROMPT)
+                prompt_text.delete("1.0", "end")
+                prompt_text.insert("1.0", seed)
+                custom_ready["done"] = True
+            show_custom_prompt(True)
+        else:
+            last_preset["id"] = style
+            show_custom_prompt(False)
+
+    style_combo.bind("<<ComboboxSelected>>", on_style_change)
 
     tk.Label(frame, text="Toast stays", bg=BG, fg=FG, font=_FONT, anchor="w").pack(fill="x")
     toast_ids = [ms for ms, _label in TOAST_DURATION_CHOICES]
@@ -415,8 +489,16 @@ def run_setup_wizard(
         updated.region_hotkey = chosen["region_hotkey"]
         updated.ask_hotkey = chosen["ask_hotkey"]
         updated.settings_hotkey = chosen["settings_hotkey"]
-        updated.prompt_style = selected_style()
-        apply_prompt_style(updated)
+        style = selected_style()
+        updated.prompt_style = style
+        if style == "custom":
+            custom = prompt_text.get("1.0", "end").strip()
+            if not custom:
+                error_var.set("Type your prompt, or pick a style above.")
+                return
+            updated.system_prompt = custom
+        else:
+            apply_prompt_style(updated)
         updated.notify.duration_ms = selected_toast_ms()
         result["config"] = updated
         root.destroy()
@@ -463,9 +545,12 @@ def run_setup_wizard(
 
     root._hotkeys = shortcut_vars  # type: ignore[attr-defined]
     root._style_combo = style_combo  # type: ignore[attr-defined]
+    root._prompt_text = prompt_text  # type: ignore[attr-defined]
     root._toast_combo = toast_combo  # type: ignore[attr-defined]
     root._save = save_and_close  # type: ignore[attr-defined]
     root._cancel = cancel  # type: ignore[attr-defined]
+    if opened_as_custom:
+        show_custom_prompt(True)
 
     root.protocol("WM_DELETE_WINDOW", cancel)
     entry.focus_set()

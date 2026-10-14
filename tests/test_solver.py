@@ -295,3 +295,46 @@ def test_explain_style_uses_longer_max_tokens(tiny_png: bytes):
     user = captured["body"]["messages"][1]["content"]
     texts = [part.get("text", "") for part in user if part.get("type") == "text"]
     assert any("key steps" in text for text in texts)
+
+
+def test_custom_style_sends_custom_system_prompt(tiny_png: bytes):
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.read())
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ANSWER: hola"}}]})
+
+    cfg = Config(
+        provider="openai",
+        api_key="sk-test",
+        model="gpt-4o",
+        prompt_style="custom",
+        system_prompt="Always answer in Spanish.",
+    )
+    solver = OpenAICompatibleSolver(cfg, client=httpx.Client(transport=httpx.MockTransport(handler)))
+    solver.solve(tiny_png)
+    assert captured["body"]["messages"][0]["content"] == "Always answer in Spanish."
+    assert captured["body"]["max_tokens"] == 800
+    user = captured["body"]["messages"][1]["content"]
+    texts = [part.get("text", "") for part in user if part.get("type") == "text"]
+    assert any("Follow the system instructions" in text for text in texts)
+
+
+def test_custom_ask_uses_custom_prompt():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.read())
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ANSWER: 1"}}]})
+
+    cfg = Config(
+        provider="openai",
+        api_key="sk-test",
+        model="gpt-4o",
+        prompt_style="custom",
+        system_prompt="Always answer in Spanish.",
+    )
+    solver = OpenAICompatibleSolver(cfg, client=httpx.Client(transport=httpx.MockTransport(handler)))
+    solver.ask("Hola?")
+    assert captured["body"]["messages"][0]["content"] == "Always answer in Spanish."
+    assert "Hola?" in json.dumps(captured["body"])

@@ -8,7 +8,13 @@ from typing import Protocol
 import httpx
 
 from snipai import SnipError
-from snipai.config import Config, ask_system_prompt, prepare_config, snip_user_prompt
+from snipai.config import (
+    Config,
+    ask_system_prompt,
+    follow_up_user_prompt,
+    prepare_config,
+    snip_user_prompt,
+)
 
 USER_PROMPT = (
     "Solve the problem shown in this screenshot. "
@@ -96,7 +102,7 @@ class OpenAICompatibleSolver:
         user = [
             {
                 "type": "text",
-                "text": FOLLOW_USER.format(previous=prev[:2000], question=text),
+                "text": follow_up_user_prompt(self.config, prev, text),
             },
             {
                 "type": "image_url",
@@ -185,7 +191,7 @@ class AnthropicSolver:
             },
             {
                 "type": "text",
-                "text": FOLLOW_USER.format(previous=prev[:2000], question=text),
+                "text": follow_up_user_prompt(self.config, prev, text),
             },
         ]
         return self._chat(self.config.system_prompt, user)
@@ -245,7 +251,7 @@ class OllamaSolver:
         prev = (previous or "").strip() or "(none)"
         return self._chat(
             self.config.system_prompt,
-            FOLLOW_USER.format(previous=prev[:2000], question=text),
+            follow_up_user_prompt(self.config, prev, text),
             images=[_b64(png)],
         )
 
@@ -274,7 +280,7 @@ class OllamaSolver:
 
 def _max_tokens(config: Config) -> int:
     style = (getattr(config, "prompt_style", "short") or "short").strip().lower()
-    return 800 if style in {"explain", "debug"} else 400
+    return 800 if style in {"explain", "debug", "custom"} else 400
 
 
 def _http_timeout() -> httpx.Timeout:

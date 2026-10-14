@@ -292,3 +292,41 @@ def test_settings_saves_style_and_toast_duration():
         assert updated.notify.duration_ms == 0
     finally:
         ui.destroy()
+
+
+def test_settings_saves_custom_prompt():
+    from snipai.config import Config
+    from snipai.setup_ui import run_setup_wizard
+
+    ui = ToastUI(NotifyConfig(duration_ms=50))
+    cfg = Config(provider="mock", api_key="mock-key")
+    seen: dict[str, object] = {}
+
+    def start() -> None:
+        def tweak() -> None:
+            for child in ui.root.winfo_children():
+                save = getattr(child, "_save", None)
+                style = getattr(child, "_style_combo", None)
+                prompt = getattr(child, "_prompt_text", None)
+                if callable(save) and style is not None and prompt is not None:
+                    style.current(3)  # Write my own
+                    style.event_generate("<<ComboboxSelected>>")
+                    prompt.delete("1.0", "end")
+                    prompt.insert("1.0", "Always answer in Spanish.")
+                    save()
+                    return
+            ui.root.quit()
+
+        ui.root.after(200, tweak)
+        seen["cfg"] = run_setup_wizard(cfg, master=ui.root, running=True)
+        ui.root.quit()
+
+    try:
+        ui.root.after(20, start)
+        ui.root.mainloop()
+        updated = seen.get("cfg")
+        assert updated is not None
+        assert updated.prompt_style == "custom"
+        assert updated.system_prompt == "Always answer in Spanish."
+    finally:
+        ui.destroy()
